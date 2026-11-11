@@ -8,7 +8,7 @@ Rule = exactly the tested one (research/scripts/scalp_full_search.py, family SWE
   level    : highest high / lowest low of the 30 minutes that end 4 minutes before the signal minute
   TOP trap : a high above the level within the previous 3 minutes, this minute CLOSES below it, previous close was at/above it -> buy PUT
   LOW trap : mirror -> buy CALL
-  window   : signal minute stamped 09:50 .. 10:29 (candles are stamped with their CLOSE time, 09:16 = first), max 4 a day, >= 20 minutes apart
+  window   : signal minute stamped 09:30 .. 10:59 (first possible about 09:49) (candles are stamped with their CLOSE time, 09:16 = first), max 4 a day, >= 20 minutes apart
   exit     : stop 3 x noise (checked first), target 3 x stop, else after 30 minutes
 
 Standalone (requests + cryptography only) so it runs on GitHub Actions or any PC.  Env: DHAN_TOKEN or (TOKEN_ENC_KEY + state/token.enc),
@@ -34,7 +34,7 @@ IST = ZoneInfo("Asia/Kolkata")
 DH = "https://api.dhan.co/v2"
 BN_ID, BN_SEG, BN_INSTR = "25", "IDX_I", "INDEX"
 FAST_MIN, STOP_X, TGT_R, HOLD, LOOK, MAXN, GAP = 1.1, 3.0, 3.0, 30, 30, 4, 20
-W_START, W_END = 9 * 60 + 50, 10 * 60 + 30          # signal minute (close stamp) in [09:50, 10:30) -- narrowed from 11:30 on 2026-11-10 to save GitHub Actions minutes (backtest: 158 of 355 trades, mean 0.026%, positive in 2025 and 2026)
+W_START, W_END = 9 * 60 + 30, 11 * 60                  # watch 09:30-11:00 (owner 2026-11-11). The first alert is only possible about 09:49-09:50: the idea needs 30 min of price history after the 09:16 first candle (raw_signal returns nothing before that). Backtest covered signals up to 11:30 (355 trades); 09:50-10:30 subset: 158 trades, mean 0.026%
 FIRST, LAST = 9 * 60 + 16, 15 * 60 + 29             # a complete session = 374 one-minute candles
 NOTE = "Remember: this idea is not proven yet. Trade very small, or only note it on paper."
 DRY = os.environ.get("DRY_RUN", "").lower() in ("1", "true")
@@ -203,7 +203,7 @@ def main():
     if trail < FAST_MIN:
         send("Scalping - %s\nToday: SKIP. The market has been moving slowly lately (a normal day moves only about %s). This idea works only when the market is moving fast.\nI will not send any trade alerts today.\n%s" % (today, rng_txt, NOTE)); return
     stop = STOP_X * noise
-    send("Scalping - %s\nToday: OK to watch. The market has been moving fast lately (a normal day moves about %s).\nI will watch from 09:50 to 10:30 and message you if a trap shows up. At most 4 alerts.\nIf you trade, your safety exit today is %d Bank Nifty points against you (about %d points on the option price).\n%s"
+    send("Scalping - %s\nToday: OK to watch. The market has been moving fast lately (a normal day moves about %s).\nI will watch from 09:30 to 11:00 and message you if a trap shows up (the first one is possible only after about 09:50, because the idea needs half an hour of price history). At most 4 alerts.\nIf you trade, your safety exit today is %d Bank Nifty points against you (about %d points on the option price).\n%s"
          % (today, rng_txt, round(stop), round(0.55 * stop), NOTE))
     sent, closed, results = set(), set(), []
     while True:
