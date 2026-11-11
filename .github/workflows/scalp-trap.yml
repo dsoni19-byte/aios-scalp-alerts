@@ -1,0 +1,52 @@
+name: scalp-trap
+
+# BANKNIFTY trap-reversal scalp alerts -> a private Telegram channel. Alert only, never orders. Candidate rule, NOT proven.
+# Public repository = free Actions minutes. Started punctually by an external cron dispatch at about 09:48 IST on weekdays.
+# No secret is stored in this repository: keys live in Actions secrets; the encrypted Dhan token is fetched fresh each run.
+on:
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "1 = ignore the weekday/time window (testing)"
+        default: "0"
+      dry_run:
+        description: "1 = print instead of sending Telegram"
+        default: "0"
+      one_pass:
+        description: "1 = with force: do a single check and stop (testing)"
+        default: "0"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: scalp-trap
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - name: fetch the encrypted Dhan token (kept current by the private token-keeper repo)
+        env:
+          GH_TOKEN: ${{ secrets.KEEPER_READ_PAT }}
+        run: |
+          mkdir -p state
+          gh api -H "Accept: application/vnd.github.raw" repos/dsoni19-byte/dhan-token-keeper/contents/state/token.enc > state/token.enc
+          test -s state/token.enc
+      - name: run scalp trap alerts
+        env:
+          DHAN_CLIENT_ID: ${{ secrets.DHAN_CLIENT_ID }}
+          TOKEN_ENC_KEY: ${{ secrets.TOKEN_ENC_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          SCALPING_CHAT_ID: ${{ vars.SCALPING_CHAT_ID }}
+          FORCE: ${{ inputs.force }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          ONE_PASS: ${{ inputs.one_pass }}
+        run: python scalp_trap_alert.py
