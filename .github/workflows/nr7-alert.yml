@@ -1,0 +1,48 @@
+name: nr7-alert
+
+# BANKNIFTY "narrow day" (NR7) watch -> a private Telegram channel. Alert only, never orders. Candidate rule, NOT proven.
+# Public repository = free Actions minutes. Started by an external cron dispatch at about 16:15 IST on weekdays; sends a message ONLY on narrow days (about weekly).
+# No secret is stored in this repository: keys live in Actions secrets; the encrypted Dhan token is fetched fresh each run.
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "1 = print instead of sending Telegram"
+        default: "0"
+      as_of:
+        description: "YYYY-MM-DD = treat that date as the last finished session (preview/testing only)"
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nr7-alert
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - name: fetch the encrypted Dhan token (kept current by the private token-keeper repo)
+        env:
+          GH_TOKEN: ${{ secrets.KEEPER_READ_PAT }}
+        run: |
+          mkdir -p state
+          gh api -H "Accept: application/vnd.github.raw" repos/dsoni19-byte/dhan-token-keeper/contents/state/token.enc > state/token.enc
+          test -s state/token.enc
+      - name: narrow-day check
+        env:
+          DHAN_CLIENT_ID: ${{ secrets.DHAN_CLIENT_ID }}
+          TOKEN_ENC_KEY: ${{ secrets.TOKEN_ENC_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          SCALPING_CHAT_ID: ${{ vars.SCALPING_CHAT_ID }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          AS_OF: ${{ inputs.as_of }}
+        run: python nr7_alert.py
