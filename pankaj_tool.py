@@ -122,6 +122,26 @@ def lines_block(name, k, s, prem, zs):
     return "\n".join(t)
 
 
+def marks_block(levels, prem):
+    """Plain list of the individual lines he marks: yesterday O/H/L/C, reversal points (swings), today's open/high/low."""
+    def pick(lbls):
+        return sorted({round(v) for v, t, l in levels if l in lbls})
+    y = {l: [v for v, t, ll in levels if ll == l] for l in ("yesterday open", "yesterday high", "yesterday low", "yesterday close")}
+    out = []
+    if y["yesterday high"]:
+        out.append("  yesterday: open %.0f, HIGH %.0f, LOW %.0f, close %.0f" % (y["yesterday open"][0], y["yesterday high"][0], y["yesterday low"][0], y["yesterday close"][0]))
+    sw = sorted({round(v) for v, t, l in levels if t in ("s5", "s15")}, key=lambda v: abs(v - prem))[:8]
+    if sw:
+        out.append("  reversal points (yesterday's 5/15-min swing highs/lows): " + ", ".join(str(v) for v in sorted(sw, reverse=True)))
+    td = {l: v for v, t, l in levels if l in ("today open", "today high", "today low")}
+    if td:
+        out.append("  today so far: open %.0f, high %.0f, low %.0f" % (td.get("today open", 0), td.get("today high", 0), td.get("today low", 0)))
+    ts = sorted({round(v) for v, t, l in levels if t == "t5"}, reverse=True)
+    if ts:
+        out.append("  today's reversal points: " + ", ".join(str(v) for v in ts[:6]))
+    return "\n".join(out)
+
+
 def zone_line(z):
     return "%.0f%s - %s" % (z["price"], " **STRONG**" if z["strength"] >= 3 else "", ", ".join(z["names"][:4]))
 
@@ -138,7 +158,7 @@ def trigger_text(side, k, prem, zs, hi_so_far):
                "Stop about %.0f (30 under the zone). If it never comes back, no trade - do not chase." % (k, side, z["price"], ", ".join(z["names"][:3]), z["price"] + 3, stop))
 
 
-def plan_msg(today, gap, side, ker_rising, exp, dte, picks, zs, prem, hi, gap_big):
+def plan_msg(today, gap, side, ker_rising, exp, dte, picks, zs, prem, hi, gap_big, lv):
     tx = ["Pankaj Sahu style - Bank Nifty morning lines - %s" % today]
     tx.append("Opening: %d points %s yesterday's close. Loren line says: %s%s." % (abs(round(gap)), "above" if gap >= 0 else "below", "CALL side" if side == "CE" else "PUT side",
               "" if ker_rising is None else (" (line rising)" if ker_rising else " (line falling)")))
@@ -150,7 +170,7 @@ def plan_msg(today, gap, side, ker_rising, exp, dte, picks, zs, prem, hi, gap_bi
         tx.append("Expiry %s is %d days away: premium moves slowly now (20-30 points), first target kept small." % (exp, dte))
     for s in ("CE", "PE"):
         if s in picks:
-            tx.append("\n" + lines_block("", picks[s][0], s, prem[s], zs[s]))
+            tx.append("\n" + lines_block("", picks[s][0], s, prem[s], zs[s]) + "\n" + marks_block(lv[s], prem[s]))
     z, t = trigger_text(side, picks[side][0], prem[side], zs[side], hi[side]) if side in picks else (None, None)
     tx.append("\n" + (t or "%s side: price is sitting at/under its lines already - I will tell you when a candle closes back above one." % side))
     tx.append("Zone = 'strong' when 3 or more lines sit together (yesterday close/low/high, 5- and 15-minute swings, today's open, round numbers). Hand-drawn trend lines are NOT included - add yours.")
@@ -166,6 +186,30 @@ def entry_msg(side, k, e, stopmsg_target):
     tx.append("Window: 15-20 minutes, then out. One trade today (one re-entry only if it stops at cost).")
     tx.append(NOTE)
     return "\n".join(tx)
+
+
+def send_chart(feed, picks, lv, zs, prem, nm, side_list, tag):
+    """Chart image of each leg with the marked lines -> Telegram photo (dry-run: saved as chart_<tag>_<leg>.png).  A failure never stops the alerts."""
+    try:
+        import pankaj_chart as CH
+    except Exception as e:                                  # matplotlib missing -> text only
+        log("chart skipped: %s" % e); return
+    for s_ in side_list:
+        if s_ not in picks:
+            continue
+        try:
+            prev, today_c = feed.opt(picks[s_][1])
+            c = K.closed(today_c, nm)
+            if not c or not c["mod"]:
+                continue
+            png = CH.draw("%d %s - lines marked at %s (blue = yesterday O/H/L/C, grey = reversal points, gold = strong zone)" % (picks[s_][0], s_, hhmm(nm)), prev, c, lv[s_], zs[s_], prem[s_])
+            if DRY:
+                open("chart_%s_%s.png" % (tag, s_), "wb").write(png); continue
+            import requests
+            requests.post("https://api.telegram.org/bot%s/sendPhoto" % os.environ["TELEGRAM_BOT_TOKEN"].strip(), timeout=30,
+                          data={"chat_id": os.environ["PANKAJ_CHAT_ID"].strip(), "caption": "%d %s - the lines on its chart" % (picks[s_][0], s_)}, files={"photo": ("chart.png", png)})
+        except Exception as e:
+            log("chart failed: %s" % str(e)[:100])
 
 
 def main():
@@ -201,7 +245,7 @@ def main():
     if side is None:
         pm.send("Pankaj Sahu style - %s: could not read the Bank Nifty history, so no plan today." % today); return
     near = sorted(oc, key=lambda k: abs(k - idx1["open"][0]))[:25]
-    picks, prem, zs, hi = {}, {}, {}, {}
+    picks, prem, zs, hi, lv = {}, {}, {}, {}, {}
     forced = os.environ.get("FORCE_STRIKES", "").split(",") if os.environ.get("FORCE_STRIKES") else []
 
     def repick(s, nm_):
@@ -220,11 +264,12 @@ def main():
             prev, today_c = feed.opt(sid, refresh=live)
             c = K.closed(today_c, nm_)
             if c and c["mod"]:
-                zs[s] = K.zones(K.build_levels(prev, c)); prem[s] = c["close"][-1]; hi[s] = max(c["high"])
+                lv[s] = K.build_levels(prev, c); zs[s] = K.zones(lv[s]); prem[s] = c["close"][-1]; hi[s] = max(c["high"])
             else:
-                zs[s], prem[s], hi[s] = [], 0.0, 0.0
+                zs[s], prem[s], hi[s], lv[s] = [], 0.0, 0.0, []
     refresh(nm)
-    pm.send(plan_msg(today, gap, side, rising, exp, dte, picks, zs, prem, hi, gap_big))
+    pm.send(plan_msg(today, gap, side, rising, exp, dte, picks, zs, prem, hi, gap_big, lv))
+    send_chart(feed, picks, lv, zs, prem, nm, ["CE", "PE"], "plan")
     z0, _t0 = trigger_text(side, picks[side][0], prem[side], zs[side], hi[side]) if side in picks else (None, None)
     pick_prem = dict(prem); last_trigger = ("trig", None if not z0 else round(z0["price"] / 10)); last_trig_nm = nm; trade = None; entries = 0; last_repick = nm; last_side_flip = nm
     while True:
@@ -244,7 +289,8 @@ def main():
                 if ns and ns != side and not trade and nm - last_side_flip >= 10:
                     side = ns; last_side_flip = nm
                     pm.send("MIND CHANGE %s: Loren line has turned - two closed 5-minute candles on the other side. Plan now: %s only. %s" %
-                            (hhmm(nm), "CALL" if side == "CE" else "PUT", (lines_block("", picks[side][0], side, prem[side], zs[side]))))
+                            (hhmm(nm), "CALL" if side == "CE" else "PUT", (lines_block("", picks[side][0], side, prem[side], zs[side]) + "\n" + marks_block(lv[side], prem[side]))))
+                    send_chart(feed, picks, lv, zs, prem, nm, [side], "flip")
         except RuntimeError as e:
             log(str(e)); continue
         # ---- manage an open trade
@@ -271,7 +317,8 @@ def main():
                 if np_ and np_[0] != picks[side][0]:
                     old = picks[side][0]; picks[side] = np_; refresh(nm); pick_prem[side] = prem[side]; last_repick = nm; last_trigger = None
                     pm.send("MIND CHANGE %s: the market is running one way (%d %s premium %+.0f since the plan). Do NOT chase it. New strike for the %s side: %d.\n%s\n%s" %
-                            (hhmm(nm), old, side, p1 - p0, side, np_[0], lines_block("", np_[0], side, prem[side], zs[side]), NOTE))
+                            (hhmm(nm), old, side, p1 - p0, side, np_[0], lines_block("", np_[0], side, prem[side], zs[side]) + "\n" + marks_block(lv[side], prem[side]), NOTE))
+                    send_chart(feed, picks, lv, zs, prem, nm, [side], "repick")
         # ---- entries
         if side in picks and (trade is None or trade.get("reenter")):
             k, sid = picks[side]

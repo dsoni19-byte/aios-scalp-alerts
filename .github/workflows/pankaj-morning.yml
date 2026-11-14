@@ -15,6 +15,12 @@ on:
       one_pass:
         description: "1 = with force: do a single check and stop (testing)"
         default: "0"
+      as_of:
+        description: "testing: replay this past date YYYY-MM-DD (use with dry_run=1)"
+        default: ""
+      force_strikes:
+        description: "testing: replay strikes ce,pe e.g. 60900,60900"
+        default: ""
 
 permissions:
   contents: read
@@ -49,4 +55,13 @@ jobs:
           FORCE: ${{ inputs.force }}
           DRY_RUN: ${{ inputs.dry_run }}
           ONE_PASS: ${{ inputs.one_pass }}
+          AS_OF: ${{ inputs.as_of }}
+          FORCE_STRIKES: ${{ inputs.force_strikes }}
         run: python pankaj_tool.py
+      - name: keep the test charts (dry-run only)
+        if: ${{ inputs.dry_run == '1' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: charts
+          path: chart_*.png
+          if-no-files-found: ignore
