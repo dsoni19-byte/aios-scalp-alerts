@@ -1,0 +1,41 @@
+name: pankaj-deadman
+
+# Safety check for the 'pankaj-morning' alert. Started by a second cron-job.org job (~09:40 IST weekdays, POST workflow_dispatch).
+# If no pankaj-morning run was created today, it tells the Telegram channel so a silent no-start is never mistaken for "no signal today".
+# Sends nothing when the morning run exists. No secrets stored here.
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "1 = print instead of sending Telegram"
+        default: "0"
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: pankaj-deadman
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: was today's morning alert started?
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TG: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          CHAT: ${{ vars.PANKAJ_CHAT_ID }}
+          DRY: ${{ inputs.dry_run }}
+        run: |
+          dow=$(TZ=Asia/Kolkata date +%u)
+          if [ "$dow" -ge 6 ]; then echo "weekend - nothing to check"; exit 0; fi
+          today=$(date -u +%F)
+          n=$(gh run list --repo "${{ github.repository }}" --workflow pankaj-morning.yml --created ">=${today}" --json databaseId --jq 'length')
+          echo "pankaj-morning runs created today (UTC ${today}): ${n}"
+          if [ "${n}" -gt 0 ]; then exit 0; fi
+          msg="WARNING: the Pankaj Sahu morning alert did NOT start today (no run found by 09:40). No plan was sent. Do not assume 'no signal' - the check itself did not run. Fix: start the pankaj-morning workflow by hand on GitHub (Actions tab, Run workflow)."
+          if [ "${DRY}" = "1" ]; then echo "DRY RUN: ${msg}"; exit 0; fi
+          curl -s -o /dev/null -w "telegram http %{http_code}\n" "https://api.telegram.org/bot${TG}/sendMessage" --data-urlencode "chat_id=${CHAT}" --data-urlencode "text=${msg}"
