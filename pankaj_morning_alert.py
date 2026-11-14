@@ -11,8 +11,10 @@ Rule (all times IST, candles stamped with their CLOSE minute, 09:16 = first 1-mi
   zones   : on that option's own 1-minute premium chart: yesterday's high / low / close, today's open, first 5 minutes' high / low / middle
   entry   : between 09:21 and 10:30 a GREEN 1-minute premium candle CLOSES above a zone it was at/below one candle earlier,
             and has not already run more than 15 points past the zone (he does not chase a running candle); the side must agree
-  gap day : open more than 300 points away from yesterday's close -> an entry counts only up to 09:35, otherwise no trade that day
-  exit    : stop 30 premium points; at +20 move the stop to the entry price (cost-to-cost); first target +40; all out by 11:00
+  gap day : open more than 300 points away from yesterday's close -> entries only 09:30-09:45 (price must come back first), otherwise no trade
+  expiry  : no trade on the 2 sessions after a monthly expiry (he waits for premiums to settle); expiry day itself = warning, small premium
+  target  : +40, but +30 when more than 10 days remain to expiry (early-cycle premium moves slowly)
+  exit    : stop 30 premium points; at +20 move the stop to the entry price (cost-to-cost); first target +40 (or +30); all out by 11:00
   one trade a day; after it ends (profit, cost or stop) nothing more is sent.
 
 Standalone (requests + cryptography).  Env: DHAN_TOKEN or (TOKEN_ENC_KEY + state/token.enc), TELEGRAM_BOT_TOKEN, PANKAJ_CHAT_ID;
@@ -38,9 +40,11 @@ DH = "https://api.dhan.co/v2"
 BN_ID = 25
 EMA_N = 39
 PREM_TARGET, PREM_LO, PREM_HI = 600.0, 550.0, 650.0
-GAP_MAX, GAP_DEADLINE = 300.0, 9 * 60 + 35
+GAP_MAX, GAP_FROM, GAP_DEADLINE = 300.0, 9 * 60 + 30, 9 * 60 + 45
 E_START, E_END, T_EXIT = 9 * 60 + 21, 10 * 60 + 30, 11 * 60
 STOP, COST_AT, TARGET, CHASE = 30.0, 20.0, 40.0, 15.0
+SLOW_DTE, SLOW_TARGET = 10, 30.0        # early in the monthly cycle he expects only 20-30 points (at most 50) a move -> first target 30
+MONTHLY_EXPIRIES = ["2026-11-23", "2026-12-29", "2027-01-25"]    # he skips the 2 sessions AFTER each one; update when Dhan lists new ones
 NOTE = "Remember: this is my reading of his videos, not his own software, and it is not proven. Trade very small, or only note it on paper."
 DRY = os.environ.get("DRY_RUN", "").lower() in ("1", "true")
 FORCE = os.environ.get("FORCE", "").lower() in ("1", "true")
@@ -103,7 +107,7 @@ def find_entry(c, z, side, five, gap_big):
     """First valid entry on this option today: (index, zone name, level) or None.  Uses candles <= index only."""
     for i in range(1, len(c["mod"])):
         m = c["mod"][i]
-        if m < E_START or m > E_END or (gap_big and m > GAP_DEADLINE):
+        if m < (GAP_FROM if gap_big else E_START) or m > (GAP_DEADLINE if gap_big else E_END):
             continue
         if c["mod"][i - 1] != m - 1 or c["close"][i] <= c["open"][i] or side_at(five, m) != side:
             continue
@@ -239,20 +243,21 @@ def opt_days(tok, cid, sec_id, today):
     return (days[pd[-1]] if pd else None), days.get(today)
 
 
-def plan_text(today, gap, gap_big, side, exp, picks, zs):
+def plan_text(today, gap, gap_big, side, exp, dte, picks, zs):
     lines = ["Pankaj Sahu style - Bank Nifty morning plan - %s" % today]
     lines.append("Opening: %s%d points %s yesterday's close." % ("about " if abs(gap) >= 1 else "", abs(round(gap)), "above" if gap >= 0 else "below"))
     if gap_big:
-        lines.append("That is a BIG gap (more than 300). His rule: trade only if a clean entry comes by 09:35, otherwise no trade today.")
+        lines.append("That is a BIG gap (more than 300). His rule: no trade unless price comes back into the zone; I accept an entry only between 09:30 and 09:45, otherwise no trade today.")
     lines.append("Side right now: %s (Bank Nifty is %s the 39-EMA line on the 5-minute chart). I follow the line if it changes."
                  % (("CALL side only" if side == "CE" else "PUT side only" if side == "PE" else "not clear yet"), "above" if side == "CE" else "below" if side == "PE" else "on"))
-    lines.append("Options chosen (premium nearest 600, expiry %s):" % exp)
+    lines.append("Expiry %s is %s. %s" % (exp, "TODAY" if dte == 0 else "%d days away" % dte, "EXPIRY DAY: premiums swing 50-60 points a candle and a 30-point stop can go in one candle. He trades it only in a small size, 9:15-10:00." if dte == 0 else ("Early in the cycle premiums move slowly, so the first target is 30 points." if dte > SLOW_DTE else "")))
+    lines.append("Options chosen (premium nearest 600):")
     for s in ("CE", "PE"):
         if picks.get(s):
             k, p = picks[s]
             zz = ", ".join("%s %.0f" % (n, v) for n, v in sorted(zs[s].items(), key=lambda x: -x[1]))
             lines.append("  %d %s, premium now about %.0f. Zones on its chart: %s." % (k, s, p, zz or "not available"))
-    lines.append("I watch until 10:30 and send ONE entry at most: a green 1-minute candle closing above a zone. Stop 30 points, first target 40.")
+    lines.append("I watch until 10:30 and send ONE entry at most: a green 1-minute candle closing above a zone. Stop 30 points, first target %d." % TARGET)
     lines.append(NOTE)
     return "\n".join(lines)
 
@@ -260,14 +265,14 @@ def plan_text(today, gap, gap_big, side, exp, picks, zs):
 def entry_text(k, s, c, i, name, lvl):
     E = c["close"][i]
     return ("ENTRY idea - time %s\nBUY %d %s (bet on a %s) near %.0f.\nReason: the premium closed back above %s (%.0f) and Bank Nifty is on the %s side of the 39-EMA line.\n"
-            "STOP: get out if the premium falls to %.0f (30 points).\nWhen it reaches %.0f (+20), move your stop to %.0f so you cannot lose.\nFIRST TARGET: %.0f (+40). After that keep raising the stop behind the price.\n"
+            "STOP: get out if the premium falls to %.0f (30 points).\nWhen it reaches %.0f (+20), move your stop to %.0f so you cannot lose.\nFIRST TARGET: %.0f (+%d). After that keep raising the stop behind the price.\n"
             "TIME EXIT: out by 11:00. Only one trade today.\n%s"
-            % (hhmm(c["mod"][i]), k, s, "rise" if s == "CE" else "fall", E, name, lvl, "upper" if s == "CE" else "lower", E - STOP, E + COST_AT, E, E + TARGET, NOTE))
+            % (hhmm(c["mod"][i]), k, s, "rise" if s == "CE" else "fall", E, name, lvl, "upper" if s == "CE" else "lower", E - STOP, E + COST_AT, E, E + TARGET, TARGET, NOTE))
 
 
 def result_text(o, m):
     word = {"stop": "the stop was hit (a loss of 30 points)", "cost": "it went up 20, then came back to the entry price (no loss, no gain)",
-            "target": "the first target was reached (+40 points)", "time": "11:00 came (%+.0f points)" % o[1]}[o[0]]
+            "target": "the first target was reached (+%d points)" % TARGET, "time": "11:00 came (%+.0f points)" % o[1]}[o[0]]
     return "Result of the %s entry: %s, after %d minutes. Before charges. No more trades today." % (hhmm(m), word, o[2])
 
 
@@ -287,7 +292,19 @@ def main():
         log("no candles for today - market closed (holiday); no message"); return
     gap = idx["open"][0] - prev_close if prev_close else 0.0
     gap_big = abs(gap) > GAP_MAX
+    for x in MONTHLY_EXPIRIES:
+        d0 = dt.date.fromisoformat(x); k = 0; dd = d0
+        while k < 2:
+            dd += dt.timedelta(days=1)
+            if dd.weekday() < 5:
+                k += 1
+                if dd.isoformat() == today:
+                    send("Pankaj Sahu style - %s: NO TRADE today. The monthly expiry was %s and he does not trade the 2 sessions after it, because premiums are still unsettled. No alerts today." % (today, x)); return
     exp, spot, oc = chain(tok, cid)
+    global TARGET
+    dte = (dt.date.fromisoformat(exp) - dt.date.fromisoformat(today)).days
+    if dte > SLOW_DTE:
+        TARGET = SLOW_TARGET
     near = sorted(oc, key=lambda k: abs(k - idx["close"][0]))[:25]
     picks, data = {}, {}
     for s in ("CE", "PE"):
@@ -307,7 +324,7 @@ def main():
     if not picks:
         send("Pankaj Sahu style - %s: I could not read the option prices this morning, so no plan and no alert today." % today); return
     zs = {s: zones(data[s][0], cut(data[s][1], plan_nm)) for s in picks}
-    send(plan_text(today, gap, gap_big, side_at(five, plan_nm), exp, picks, zs))
+    send(plan_text(today, gap, gap_big, side_at(five, plan_nm), exp, dte, picks, zs))
     found = None; res = None
     while True:
         if live:
@@ -342,7 +359,7 @@ def main():
         time.sleep(max(2.0, 64 - dt.datetime.now(IST).second))
     if not found:
         send("Pankaj Sahu style - %s is over. No clean entry came%s, so no trade today. In his words, a no-trade day is also a good day.\n%s"
-             % (today, " by 09:35 after the big gap" if gap_big else " by 10:30", NOTE))
+             % (today, " between 09:30 and 09:45 after the big gap" if gap_big else " by 10:30", NOTE))
     elif not res:
         send("Pankaj Sahu style - %s: the watch ended before the trade finished. Please manage the exit yourself (out by 11:00)." % today)
 
