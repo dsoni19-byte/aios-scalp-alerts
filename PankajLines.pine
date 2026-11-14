@@ -74,9 +74,10 @@ var array<float> swB = array.new_float()
 addSw(arr, v) =>
     if not na(v)
         dup = false
-        for i = 0 to array.size(arr) - 1
-            if math.abs(array.get(arr, i) - v) < syminfo.mintick
-                dup := true
+        if array.size(arr) > 0
+            for i = 0 to array.size(arr) - 1
+                if math.abs(array.get(arr, i) - v) < syminfo.mintick
+                    dup := true
         if not dup
             array.push(arr, v)
             if array.size(arr) > maxSw
@@ -126,10 +127,12 @@ if barstate.islast
         add(tL, 2, colDay, "today low", line.style_dashed, 1)
         add(f5M, 6, colMid, "50% first 5 min", line.style_dashed, 1)
     if showSwing
-        for i = 0 to array.size(swA) - 1
-            add(array.get(swA, i), 3, colSw, "", line.style_dotted, 1)
-        for i = 0 to array.size(swB) - 1
-            add(array.get(swB, i), 4, colSw, "", line.style_dashed, 1)
+        if array.size(swA) > 0
+            for i = 0 to array.size(swA) - 1
+                add(array.get(swA, i), 3, colSw, "", line.style_dotted, 1)
+        if array.size(swB) > 0
+            for i = 0 to array.size(swB) - 1
+                add(array.get(swB, i), 4, colSw, "", line.style_dashed, 1)
     if showRound
         base = math.floor((close - 6 * roundStep) / roundStep) * roundStep
         for i = 0 to 12
