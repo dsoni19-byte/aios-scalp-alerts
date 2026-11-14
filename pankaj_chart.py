@@ -16,7 +16,7 @@ def draw(title, prev, today, levels, zones, prem):
     xs, o, h, l, c, lab = [], [], [], [], [], []
     i = 0
     if prev and prev["mod"]:                                   # last 45 minutes of yesterday, for the 'where it closed' context
-        n = len(prev["mod"]); st = max(0, n - 45)
+        n = len(prev["mod"]); st = max(0, n - 25)
         for k in range(st, n):
             xs.append(i); o.append(prev["open"][k]); h.append(prev["high"][k]); l.append(prev["low"][k]); c.append(prev["close"][k]); lab.append(None); i += 1
     sep = i
@@ -27,6 +27,12 @@ def draw(title, prev, today, levels, zones, prem):
         ax.plot([x, x], [ll, hh], color=col, lw=0.9, zorder=3)
         ax.add_patch(plt.Rectangle((x - 0.32, min(oo, cc)), 0.64, max(abs(cc - oo), 0.4), color=col, zorder=4))
     xmax = (xs[-1] if xs else 0) + 14
+    near = [v for v, t, _ in levels if t != "round" and abs(v - prem) <= 130]
+    allp = h + l + near
+    ylo, yhi = min(allp) - 10, max(allp) + 10
+    ax.set_ylim(ylo, yhi)
+    levels = [x for x in levels if ylo <= x[0] <= yhi]
+    zones = [z for z in zones if ylo <= z["price"] <= yhi]
     shade = {"prev": ("#1f5fbf", "-", 1.3), "s5": ("#8a8a8a", ":", 0.9), "s15": ("#8a8a8a", "--", 1.0), "t5": ("#8a8a8a", ":", 0.9),
              "open": ("#b8860b", "-", 1.2), "dayhl": ("#b8860b", "--", 1.0), "mid": ("#7a3fa0", "--", 0.9), "round": ("#bbbbbb", ":", 0.6)}
     drawn = []
@@ -44,9 +50,7 @@ def draw(title, prev, today, levels, zones, prem):
             ax.text(1, z["price"], "STRONG %.0f" % z["price"], va="bottom", fontsize=7.5, color="#8a6400", weight="bold")
     if sep:
         ax.axvline(sep - 0.5, color="#555", lw=0.8)
-        ax.text(sep - 0.5, ax.get_ylim()[1], " today", va="top", fontsize=8, color="#555")
-    allp = h + l + [v for v, t, _ in levels if t != "round" and abs(v - prem) < 260]
-    ax.set_ylim(min(allp) - 12, max(allp) + 12)
+        ax.text(sep - 0.5, yhi, " today", va="top", fontsize=8, color="#555")
     ax.set_xlim(-1, xmax + 12)
     ticks = [x for x, m in zip(xs, lab) if m is not None and m % 5 == 0]
     ax.set_xticks(ticks[::2]); ax.set_xticklabels([hhmm(m) for m in [t for t in lab if t is not None and t % 5 == 0]][::2], fontsize=7)
