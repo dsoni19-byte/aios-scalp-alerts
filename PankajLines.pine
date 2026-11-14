@@ -99,7 +99,7 @@ add(p, k, c, txt, st, wd) =>
         array.push(zP, p)
         array.push(zK, k)
         array.push(drawn, line.new(bar_index - 1, p, bar_index, p, extend = extend.both, color = c, style = st, width = wd))
-        if showLbl and not na(txt)
+        if showLbl and txt != ""
             array.push(lbls, label.new(bar_index + 2, p, txt + " " + str.tostring(p, format.mintick), style = label.style_none, textcolor = c, size = size.small))
 
 if barstate.islast
@@ -127,9 +127,9 @@ if barstate.islast
         add(f5M, 6, colMid, "50% first 5 min", line.style_dashed, 1)
     if showSwing
         for i = 0 to array.size(swA) - 1
-            add(array.get(swA, i), 3, colSw, na, line.style_dotted, 1)
+            add(array.get(swA, i), 3, colSw, "", line.style_dotted, 1)
         for i = 0 to array.size(swB) - 1
-            add(array.get(swB, i), 4, colSw, na, line.style_dashed, 1)
+            add(array.get(swB, i), 4, colSw, "", line.style_dashed, 1)
     if showRound
         base = math.floor((close - 6 * roundStep) / roundStep) * roundStep
         for i = 0 to 12
