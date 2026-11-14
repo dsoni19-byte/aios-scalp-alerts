@@ -176,6 +176,8 @@ def candles(tok, cid, sec_id, option, interval, d_from, d_to):
     j = post("/charts/intraday", {"securityId": str(sec_id), "exchangeSegment": "NSE_FNO" if option else "IDX_I", "instrument": "OPTIDX" if option else "INDEX",
                                   "interval": str(interval), "fromDate": d_from + " 09:15:00", "toDate": d_to + " 15:30:00"}, tok, cid)
     days = {}
+    if isinstance(j, dict) and j.get("errorCode"):
+        raise RuntimeError("Dhan error %s %s" % (j.get("errorCode"), str(j.get("errorMessage"))[:60]))      # an error is NEVER read as "market closed"
     if not isinstance(j, dict) or "close" not in j:
         return days
     for t, o, h, l, c in zip(j["timestamp"], j["open"], j["high"], j["low"], j["close"]):
@@ -366,4 +368,12 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except (Exception, SystemExit) as e:
+        log("FAILED: %s" % e)
+        try:
+            if not (isinstance(e, SystemExit) and e.code in (0, None)):
+                send("Pankaj Sahu style - %s: the morning check could NOT run (%s). No alerts today - please do not rely on this channel today." % ((AS_OF or dt.datetime.now(IST).strftime("%Y-%m-%d")), str(e)[:100]))
+        finally:
+            raise
