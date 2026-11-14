@@ -1,0 +1,197 @@
+//@version=5
+// PANKAJ LINES - marks the lines Pankaj Sahu marks, on ANY chart (index, stock, option, crude, BTC) and any timeframe.
+//  - yesterday's Open / High / Low / Close          (blue)
+//  - today's Open, High, Low, 50% of the first 5 minutes (gold / purple)
+//  - reversal points = swing highs/lows of the 5-minute and 15-minute charts (grey)   [timeframes are inputs]
+//  - round numbers (optional, light)
+//  - STRONG ZONE (gold band) where 3 or more different kinds of line sit together
+//  - alert: price touched a strong zone from above and a candle CLOSED back above it  (his "reversal candle close" entry)
+// Not his software, not a trading signal, not proven. It only draws the lines so you do not have to.
+indicator("Pankaj Lines - any chart", overlay = true, max_lines_count = 300, max_labels_count = 150, max_boxes_count = 60)
+
+grpA = "Reversal points (swings)"
+tfA  = input.timeframe("5",  "Swing chart 1", group = grpA)
+wA   = input.int(2, "Candles each side (chart 1)", minval = 1, group = grpA)
+tfB  = input.timeframe("15", "Swing chart 2", group = grpA)
+wB   = input.int(1, "Candles each side (chart 2)", minval = 1, group = grpA)
+maxSw = input.int(12, "Swing lines kept per chart", minval = 2, maxval = 40, group = grpA)
+
+grpZ = "Zones"
+usePct = input.bool(false, "Zone width in % of price (tick for stocks/index; leave off for options)", group = grpZ)
+widthV = input.float(7.0, "Zone width (points, or % if ticked)", minval = 0.01, group = grpZ)
+minStr = input.int(3, "Strong zone = this many kinds of line together", minval = 2, maxval = 6, group = grpZ)
+showRound = input.bool(true, "Round numbers", group = grpZ)
+roundStep = input.float(50.0, "Round number step", minval = 0.01, group = grpZ)
+nearV = input.float(5.0, "Touch distance for the alert (points, or % if ticked)", minval = 0.01, group = grpZ)
+
+grpS = "Show"
+showPrev = input.bool(true, "Yesterday O/H/L/C", group = grpS)
+showToday = input.bool(true, "Today open / high / low / 50% of first 5 min", group = grpS)
+showSwing = input.bool(true, "Reversal points", group = grpS)
+showLbl = input.bool(true, "Labels", group = grpS)
+
+colPrev = color.new(#1f5fbf, 0)
+colDay  = color.new(#b8860b, 0)
+colMid  = color.new(#7a3fa0, 0)
+colSw   = color.new(#8a8a8a, 20)
+colRnd  = color.new(#bbbbbb, 60)
+
+w(p) => usePct ? p * widthV / 100.0 : widthV
+nr(p) => usePct ? p * nearV / 100.0 : nearV
+
+// ---------------------------------------------------------------- yesterday
+[pO, pH, pL, pC] = request.security(syminfo.tickerid, "D", [open[1], high[1], low[1], close[1]], lookahead = barmerge.lookahead_on)
+
+// ---------------------------------------------------------------- today
+newDay = timeframe.change("D")
+var float tO = na
+var float tH = na
+var float tL = na
+var float f5H = na
+var float f5L = na
+var int dayStart = na
+if newDay
+    tO := open
+    tH := high
+    tL := low
+    f5H := high
+    f5L := low
+    dayStart := time
+else
+    tH := math.max(tH, high)
+    tL := math.min(tL, low)
+    if not na(dayStart) and (time - dayStart) < 5 * 60 * 1000
+        f5H := math.max(f5H, high)
+        f5L := math.min(f5L, low)
+f5M = (f5H + f5L) / 2.0
+
+// ---------------------------------------------------------------- reversal points from other timeframes
+[phA, plA] = request.security(syminfo.tickerid, tfA, [ta.pivothigh(high, wA, wA), ta.pivotlow(low, wA, wA)], lookahead = barmerge.lookahead_off)
+[phB, plB] = request.security(syminfo.tickerid, tfB, [ta.pivothigh(high, wB, wB), ta.pivotlow(low, wB, wB)], lookahead = barmerge.lookahead_off)
+
+var array<float> swA = array.new_float()
+var array<float> swB = array.new_float()
+addSw(arr, v) =>
+    if not na(v)
+        dup = false
+        for i = 0 to array.size(arr) - 1
+            if math.abs(array.get(arr, i) - v) < syminfo.mintick
+                dup := true
+        if not dup
+            array.push(arr, v)
+            if array.size(arr) > maxSw
+                array.shift(arr)
+if barstate.isconfirmed or barstate.islast
+    addSw(swA, phA)
+    addSw(swA, plA)
+    addSw(swB, phB)
+    addSw(swB, plB)
+
+// ---------------------------------------------------------------- collect every line with its KIND (1 prev, 2 today, 3 swing 5, 4 swing 15, 5 round, 6 mid-of-first-5)
+var array<float> zP = array.new_float()
+var array<int>   zK = array.new_int()
+var array<line>  drawn = array.new_line()
+var array<label> lbls = array.new_label()
+var array<box>   boxes = array.new_box()
+
+add(p, k, c, txt, st, wd) =>
+    if not na(p)
+        array.push(zP, p)
+        array.push(zK, k)
+        array.push(drawn, line.new(bar_index - 1, p, bar_index, p, extend = extend.both, color = c, style = st, width = wd))
+        if showLbl and not na(txt)
+            array.push(lbls, label.new(bar_index + 2, p, txt + " " + str.tostring(p, format.mintick), style = label.style_none, textcolor = c, size = size.small))
+
+if barstate.islast
+    for l in drawn
+        line.delete(l)
+    array.clear(drawn)
+    for lb in lbls
+        label.delete(lb)
+    array.clear(lbls)
+    for b in boxes
+        box.delete(b)
+    array.clear(boxes)
+    array.clear(zP)
+    array.clear(zK)
+
+    if showPrev
+        add(pO, 1, colPrev, "yesterday open", line.style_dashed, 1)
+        add(pH, 1, colPrev, "yesterday HIGH", line.style_solid, 2)
+        add(pL, 1, colPrev, "yesterday LOW", line.style_solid, 2)
+        add(pC, 1, colPrev, "yesterday close", line.style_solid, 2)
+    if showToday
+        add(tO, 2, colDay, "today open", line.style_solid, 1)
+        add(tH, 2, colDay, "today high", line.style_dashed, 1)
+        add(tL, 2, colDay, "today low", line.style_dashed, 1)
+        add(f5M, 6, colMid, "50% first 5 min", line.style_dashed, 1)
+    if showSwing
+        for i = 0 to array.size(swA) - 1
+            add(array.get(swA, i), 3, colSw, na, line.style_dotted, 1)
+        for i = 0 to array.size(swB) - 1
+            add(array.get(swB, i), 4, colSw, na, line.style_dashed, 1)
+    if showRound
+        base = math.floor((close - 6 * roundStep) / roundStep) * roundStep
+        for i = 0 to 12
+            k = base + i * roundStep
+            if k > 0
+                array.push(zP, k)
+                array.push(zK, 5)
+                array.push(drawn, line.new(bar_index - 1, k, bar_index, k, extend = extend.both, color = colRnd, style = line.style_dotted, width = 1))
+
+    // ---- strong zones: group lines within the zone width, count different KINDS
+    n = array.size(zP)
+    if n > 0
+        idx = array.sort_indices(zP, order.ascending)
+        gStart = 0
+        for j = 0 to n - 1
+            cur = array.get(zP, array.get(idx, j))
+            endGroup = j == n - 1
+            if not endGroup
+                nxt = array.get(zP, array.get(idx, j + 1))
+                endGroup := nxt - cur > w(cur)
+            if endGroup
+                kinds = array.new_int()
+                lo = array.get(zP, array.get(idx, gStart))
+                hi = cur
+                for q = gStart to j
+                    kd = array.get(zK, array.get(idx, q))
+                    if not array.includes(kinds, kd)
+                        array.push(kinds, kd)
+                if array.size(kinds) >= minStr
+                    array.push(boxes, box.new(bar_index - 60, hi + w(hi) * 0.15, bar_index + 30, lo - w(lo) * 0.15, bgcolor = color.new(#f4b400, 78), border_color = color.new(#f4b400, 40), extend = extend.none))
+                    array.push(lbls, label.new(bar_index - 58, (lo + hi) / 2, "STRONG " + str.tostring((lo + hi) / 2, format.mintick), style = label.style_none, textcolor = color.new(#8a6400, 0), size = size.small))
+                gStart := j + 1
+
+// ---------------------------------------------------------------- alert: touched a strong zone from above and a candle CLOSED back above it
+// (uses the last drawn zones; the alert fires on the bar close)
+var array<float> strongP = array.new_float()
+if barstate.islast
+    array.clear(strongP)
+    if array.size(zP) > 0
+        idx2 = array.sort_indices(zP, order.ascending)
+        gs = 0
+        nn = array.size(zP)
+        for j = 0 to nn - 1
+            cur = array.get(zP, array.get(idx2, j))
+            eg = j == nn - 1
+            if not eg
+                eg := array.get(zP, array.get(idx2, j + 1)) - cur > w(cur)
+            if eg
+                ks = array.new_int()
+                for q = gs to j
+                    kd = array.get(zK, array.get(idx2, q))
+                    if not array.includes(ks, kd)
+                        array.push(ks, kd)
+                if array.size(ks) >= minStr
+                    array.push(strongP, (array.get(zP, array.get(idx2, gs)) + cur) / 2)
+                gs := j + 1
+
+touched = false
+hit = false
+if array.size(strongP) > 0
+    for z in strongP
+        if ta.lowest(low, 4) <= z + nr(z) and close > z and close > open and close[1] <= z + nr(z) and low < z + nr(z)
+            hit := true
+plotshape(hit and barstate.isconfirmed, "Closed back above a strong zone", shape.triangleup, location.belowbar, color.new(#2a9d5c, 0), size = size.small, text = "BUY?")
+alertcondition(hit, "Closed back above a strong zone", "Pankaj Lines: a candle closed back above a strong zone on {{ticker}} - check the chart")
