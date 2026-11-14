@@ -1,6 +1,6 @@
 name: pankaj-morning
 
-# BANKNIFTY morning option-premium alerts (Pankaj Sahu style reading) -> private Telegram channel. Alert only, never orders. Not proven.
+# BANKNIFTY morning LINES + premium alerts tool (Pankaj Sahu style reading, pankaj_tool.py) -> private Telegram channel. Alert only, never orders. Not proven.
 # Public repository = free Actions minutes. Started punctually by the cron-job.org job 'AIOS Pankaj Sahu morning alerts' (09:15 IST weekdays, POST workflow_dispatch). No GitHub schedule here, or messages would double.
 # No secret is stored in this repository: keys live in Actions secrets; the encrypted Dhan token is fetched fresh each run.
 on:
@@ -49,4 +49,4 @@ jobs:
           FORCE: ${{ inputs.force }}
           DRY_RUN: ${{ inputs.dry_run }}
           ONE_PASS: ${{ inputs.one_pass }}
-        run: python pankaj_morning_alert.py
+        run: python pankaj_tool.py
