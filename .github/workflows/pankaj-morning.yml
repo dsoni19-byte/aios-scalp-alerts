@@ -4,6 +4,8 @@ name: pankaj-morning
 # Public repository = free Actions minutes. Started punctually by an external cron dispatch at about 09:19 IST on weekdays.
 # No secret is stored in this repository: keys live in Actions secrets; the encrypted Dhan token is fetched fresh each run.
 on:
+  schedule:
+    - cron: "45 3 * * 1-5"      # 09:15 IST, weekdays (GitHub may start it late; the script handles a late start). Remove this if an external cron dispatch is added, or messages double.
   workflow_dispatch:
     inputs:
       force:
