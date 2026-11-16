@@ -180,10 +180,10 @@ def plan_msg(today, gap, side, ker_rising, exp, dte, picks, zs, prem, hi, gap_bi
 
 def entry_msg(side, k, e, stopmsg_target):
     t, z = stopmsg_target
-    tx = ["ENTRY at %s - BUY %d %s near %.0f   [%s]" % (hhmm(e["t"] + 1), k, side, e["entry"], "pullback into a zone" if e["kind"] == "pullback" else "BREAKOUT - his second plan, smaller size")]
+    tx = ["ENTRY at %s - BUY %d %s near %.0f   [%s]" % (hhmm(e["t"] + 1), k, side, e["entry"], "pullback into a zone" if e["kind"] == "pullback" else ("TRAP IS DONE - price reclaimed the zone that failed; this wins back the stopped trade" if e["kind"].startswith("TRAP") else "BREAKOUT - his second plan, smaller size"))]
     tx.append("Why: premium closed back above %s." % zone_line(e["zone"]))
     tx.append("STOP %.0f (%.0f points). At +25 I will tell you to move it to cost. FIRST TARGET %.0f%s." % (e["stop"], e["entry"] - e["stop"], t, (" (next zone: %s)" % ", ".join(z["names"][:2])) if z else ""))
-    tx.append("Window: 15-20 minutes, then out. One trade today (one re-entry only if it stops at cost).")
+    tx.append("Window: 15-20 minutes, then out. Up to 3 entries a day: after a stop I watch for the trap to finish (close back above the failed zone) and tell you; after a cost exit one re-entry.")
     tx.append(NOTE)
     return "\n".join(tx)
 
@@ -302,6 +302,9 @@ def main():
             if trade.get("done"):
                 if trade["done"] == "cost" and entries < 2:
                     trade["reenter"] = True
+                elif trade["done"] == "stop" and entries < int(os.environ.get("MAX_ENTRIES", "3")) and nm + 8 <= E_END:
+                    trade["reenter"] = True; trade["trap_watch"] = True; trade["exit_nm"] = nm
+                    pm.send("[%s %d %s] STOPPED - may be a TRAP. I keep watching. I re-enter ONLY when a 1-minute candle CLOSES back above %.0f (the zone that failed) after the premium has dipped under your stop %.0f. Until then, do nothing." % (hhmm(nm), trade["strike"], trade["side"], trade["zone_p"], trade["stop"]))
                 else:
                     pm.send("Trade finished (%s). No more alerts today - well done for stopping." % trade["done"])
                     break
@@ -320,6 +323,21 @@ def main():
                             (hhmm(nm), old, side, p1 - p0, side, np_[0], lines_block("", np_[0], side, prem[side], zs[side]) + "\n" + marks_block(lv[side], prem[side]), NOTE))
                     send_chart(feed, picks, lv, zs, prem, nm, [side], "repick")
         # ---- entries
+        if trade and trade.get("trap_watch") and side in picks:
+            k, sid = picks[side]
+            c = K.closed(feed.opt(sid)[1], nm)
+            if c and c["mod"] and c["mod"][-1] > trade["exit_nm"]:
+                lows = [l_ for m_, l_ in zip(c["mod"], c["low"]) if m_ >= trade["exit_nm"] - 1]
+                i_ = len(c["mod"]) - 1
+                if lows and min(lows) < trade["stop"] and c["close"][i_] > trade["zone_p"] and c["close"][i_] > c["open"][i_]:
+                    E_ = c["close"][i_]; flush = min(lows)
+                    stop_ = max(flush - 2.0, E_ - 45.0)
+                    tgt = K.next_target(zs[side], E_)
+                    e = dict(kind="TRAP DONE - reclaim of the failed zone", zone=trade["zone"], entry=E_, stop=stop_, t=c["mod"][i_])
+                    trade = dict(entry=E_, stop=stop_, t=e["t"], t_end=min(nm + 22, E_END + 5), target=tgt[0], side=side, strike=k, kind=e["kind"], zone=trade["zone"], zone_p=trade["zone_p"])
+                    entries += 1
+                    pm.send(entry_msg(side, k, e, tgt))
+            continue
         if side in picks and (trade is None or trade.get("reenter")):
             k, sid = picks[side]
             c = K.closed(feed.opt(sid)[1], nm)
@@ -332,7 +350,7 @@ def main():
                         last_trigger = key; pm.send("[%s] %d %s closed back above %.0f but %s." % (hhmm(nm), k, side, e["zone"]["price"], e["skip"]))
                 elif e and (trade is None or e["zone"]["price"] <= trade["entry"] + 1):
                     tgt = K.next_target(zs[side], e["entry"])
-                    trade = dict(entry=e["entry"], stop=e["stop"], t=e["t"], t_end=min(nm + 22, E_END + 5), target=tgt[0], side=side, strike=k, kind=e["kind"])
+                    trade = dict(entry=e["entry"], stop=e["stop"], t=e["t"], t_end=min(nm + 22, E_END + 5), target=tgt[0], side=side, strike=k, kind=e["kind"], zone=e["zone"], zone_p=e["zone"]["price"])
                     entries += 1
                     pm.send(entry_msg(side, k, e, tgt))
                     continue
