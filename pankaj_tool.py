@@ -35,10 +35,12 @@ except Exception:
 def _day_zones(lv):
     """Few-lines rule (owner 2026-11-16; pre-registered test: research/PANKAJ_RULE_PREREGISTRATION_2026-11-16.md, R3, 62 sessions +468 vs +447 with ~48 lines).
     Keep only yesterday open/high/low/close, today open/high/low and the 50% of the first 5 minutes; a 5/15-min swing or round number is kept only
-    when it lies within CLUSTER points of one of those (it confirms it, never stands alone). A zone = 2+ kinds among the kept lines."""
+    when it lies within CLUSTER points of one of those (it confirms it, never stands alone). A zone = 2+ kinds among the kept lines. Plus every strong zone from the full list."""
     base = [x for x in lv if x[1] in ("prev", "open", "dayhl", "mid")]
     keep = list(base) + [x for x in lv if x[1] in ("s5", "s15", "t5", "round") and any(abs(x[0] - y[0]) <= K.CLUSTER for y in base)]
-    return K.zones(keep)
+    strong = [z for z in K.zones(lv) if z["strength"] >= 3]          # every STRONG zone (3+ kinds, full line list) is always kept (owner 2026-11-16; test R4: 62 sessions +585, avg +6.8, worst -233)
+    rest = [z for z in K.zones(keep) if not any(abs(z["price"] - q["price"]) <= K.CLUSTER for q in strong)]
+    return sorted(strong + rest, key=lambda z: z["price"])
 
 def candles(tok, cid, sec_id, option, interval, d_from, d_to):
     """-> {date: dict(mod, open, high, low, close)}; START-minute stamps.  Options drop the 09:15 auction candle (first = 09:16)."""
