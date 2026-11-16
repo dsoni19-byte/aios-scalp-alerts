@@ -4,6 +4,7 @@
 //  - today's Open, High, Low, 50% of the first 5 minutes (gold / purple)
 //  - reversal points = swing highs/lows of the 5-minute and 15-minute charts (grey)   [timeframes are inputs]
 //  - round numbers (optional, light)
+//  - FEW LINES mode (default): only the day-levels are drawn, swings/round numbers only where they confirm one of them (tested 16 Nov 2026)
 //  - STRONG ZONE (gold band) where 3 or more different kinds of line sit together
 //  - alert: price touched a strong zone from above and a candle CLOSED back above it  (his "reversal candle close" entry)
 // Not his software, not a trading signal, not proven. It only draws the lines so you do not have to.
@@ -20,7 +21,7 @@ grpZ = "Zones"
 usePct = input.bool(false, "Zone width in % of price (tick for stocks/index; leave off for options)", group = grpZ)
 widthV = input.float(7.0, "Zone width (points, or % if ticked)", minval = 0.01, group = grpZ)
 minStr = input.int(3, "Strong zone = this many kinds of line together", minval = 2, maxval = 6, group = grpZ)
-showRound = input.bool(true, "Round numbers", group = grpZ)
+showRound = input.bool(true, "Round numbers (never drawn on option charts - not useful there)", group = grpZ)
 roundStep = input.float(50.0, "Round number step", minval = 0.01, group = grpZ)
 nearV = input.float(5.0, "Touch distance for the alert (points, or % if ticked)", minval = 0.01, group = grpZ)
 
@@ -29,6 +30,8 @@ showPrev = input.bool(true, "Yesterday O/H/L/C", group = grpS)
 showToday = input.bool(true, "Today open / high / low / 50% of first 5 min", group = grpS)
 showSwing = input.bool(true, "Reversal points", group = grpS)
 showLbl = input.bool(true, "Labels", group = grpS)
+fewLines = input.bool(true, "Few lines: only yesterday O/H/L/C + today open/high/low/50% of first 5 min; swings and round numbers only where they confirm one of those", group = grpS)
+lblV = input.float(12.0, "Merge labels of lines closer than (points, or % if ticked)", minval = 0.0, group = grpS)
 
 colPrev = color.new(#1f5fbf, 0)
 colDay  = color.new(#b8860b, 0)
@@ -39,30 +42,47 @@ colRnd  = color.new(#bbbbbb, 60)
 w(p) => usePct ? p * widthV / 100.0 : widthV
 nr(p) => usePct ? p * nearV / 100.0 : nearV
 
-// ---------------------------------------------------------------- yesterday
-[pO, pH, pL, pC] = request.security(syminfo.tickerid, "D", [open[1], high[1], low[1], close[1]], lookahead = barmerge.lookahead_on)
+// ---------------------------------------------------------------- yesterday + today, built from 1-minute candles
+// An option's 09:15 candle is only the opening auction (not real trading). The default below leaves it out so that the
+// open / high / low / 50%-of-first-5-minutes match the numbers the 1-minute candles of the Telegram tool use.
+// Switch it off for index, stocks, crypto etc.
+skipAuc = input.bool(true, "Leave out the 09:15 opening-auction candle (tick for OPTIONS, untick for index/stocks)", group = grpS)
 
-// ---------------------------------------------------------------- today
-newDay = timeframe.change("D")
-var float tO = na
-var float tH = na
-var float tL = na
-var float f5H = na
-var float f5L = na
-var int dayStart = na
-if newDay
-    tO := open
-    tH := high
-    tL := low
-    f5H := high
-    f5L := low
-    dayStart := time
-else
-    tH := math.max(tH, high)
-    tL := math.min(tL, low)
-    if not na(dayStart) and (time - dayStart) < 5 * 60 * 1000
-        f5H := math.max(f5H, high)
-        f5L := math.min(f5L, low)
+dayVals(skip) =>
+    var float cO = na
+    var float cH = na
+    var float cL = na
+    var float cC = na
+    var float eH = na
+    var float eL = na
+    var float qO = na
+    var float qH = na
+    var float qL = na
+    var float qC = na
+    if timeframe.change("D")
+        qO := cO
+        qH := cH
+        qL := cL
+        qC := cC
+        cO := na
+        cH := na
+        cL := na
+        cC := na
+        eH := na
+        eL := na
+    mins = hour(time, syminfo.timezone) * 60 + minute(time, syminfo.timezone)
+    skipBar = skip and mins == 555
+    if not skipBar
+        cO := na(cO) ? open : cO
+        cH := na(cH) ? high : math.max(cH, high)
+        cL := na(cL) ? low : math.min(cL, low)
+        cC := close
+        if mins >= 555 and mins < 560
+            eH := na(eH) ? high : math.max(eH, high)
+            eL := na(eL) ? low : math.min(eL, low)
+    [qO, qH, qL, qC, cO, cH, cL, eH, eL]
+
+[pO, pH, pL, pC, tO, tH, tL, f5H, f5L] = request.security(syminfo.tickerid, "1", dayVals(skipAuc), lookahead = barmerge.lookahead_off)
 f5M = (f5H + f5L) / 2.0
 
 // ---------------------------------------------------------------- reversal points from other timeframes
@@ -91,6 +111,10 @@ if barstate.isconfirmed or barstate.islast
 // ---------------------------------------------------------------- collect every line with its KIND (1 prev, 2 today, 3 swing 5, 4 swing 15, 5 round, 6 mid-of-first-5)
 var array<float> zP = array.new_float()
 var array<int>   zK = array.new_int()
+var array<string> zT = array.new_string()
+var array<color>  zC = array.new_color()
+var array<string> zSt = array.new_string()
+var array<int>    zW = array.new_int()
 var array<line>  drawn = array.new_line()
 var array<label> lbls = array.new_label()
 var array<box>   boxes = array.new_box()
@@ -99,9 +123,10 @@ add(p, k, c, txt, st, wd) =>
     if not na(p)
         array.push(zP, p)
         array.push(zK, k)
-        array.push(drawn, line.new(bar_index - 1, p, bar_index, p, extend = extend.both, color = c, style = st, width = wd))
-        if showLbl and txt != ""
-            array.push(lbls, label.new(bar_index + 2, p, txt + " " + str.tostring(p, format.mintick), style = label.style_none, textcolor = c, size = size.small))
+        array.push(zT, txt)
+        array.push(zC, c)
+        array.push(zSt, st)
+        array.push(zW, wd)
 
 if barstate.islast
     for l in drawn
@@ -115,32 +140,61 @@ if barstate.islast
     array.clear(boxes)
     array.clear(zP)
     array.clear(zK)
+    array.clear(zT)
+    array.clear(zC)
+    array.clear(zSt)
+    array.clear(zW)
 
     if showPrev
-        add(pO, 1, colPrev, "yesterday open", line.style_dashed, 1)
-        add(pH, 1, colPrev, "yesterday HIGH", line.style_solid, 2)
-        add(pL, 1, colPrev, "yesterday LOW", line.style_solid, 2)
-        add(pC, 1, colPrev, "yesterday close", line.style_solid, 2)
+        add(pO, 1, colPrev, "yest.open", line.style_dashed, 1)
+        add(pH, 1, colPrev, "yest.HIGH", line.style_solid, 2)
+        add(pL, 1, colPrev, "yest.LOW", line.style_solid, 2)
+        add(pC, 1, colPrev, "yest.close", line.style_solid, 2)
     if showToday
         add(tO, 2, colDay, "today open", line.style_solid, 1)
         add(tH, 2, colDay, "today high", line.style_dashed, 1)
         add(tL, 2, colDay, "today low", line.style_dashed, 1)
-        add(f5M, 6, colMid, "50% first 5 min", line.style_dashed, 1)
+        add(f5M, 6, colMid, "50% 1st 5m", line.style_dashed, 1)
     if showSwing
         if array.size(swA) > 0
             for i = 0 to array.size(swA) - 1
-                add(array.get(swA, i), 3, colSw, "", line.style_dotted, 1)
+                add(array.get(swA, i), 3, colSw, "5m swing", line.style_dotted, 1)
         if array.size(swB) > 0
             for i = 0 to array.size(swB) - 1
-                add(array.get(swB, i), 4, colSw, "", line.style_dashed, 1)
-    if showRound
+                add(array.get(swB, i), 4, colSw, "15m swing", line.style_dashed, 1)
+    if showRound and syminfo.type != "option"
         base = math.floor((close - 6 * roundStep) / roundStep) * roundStep
         for i = 0 to 12
             k = base + i * roundStep
             if k > 0
                 array.push(zP, k)
                 array.push(zK, 5)
-                array.push(drawn, line.new(bar_index - 1, k, bar_index, k, extend = extend.both, color = colRnd, style = line.style_dotted, width = 1))
+                array.push(zT, "round")
+                array.push(zC, color.new(#999999, 0))
+                array.push(zSt, line.style_dotted)
+                array.push(zW, 1)
+
+    // ---- FEW LINES (his charts carry about 8, not 40+): keep the day-levels (yesterday O/H/L/C, today open/high/low, 50% of first 5 min);
+    // a swing or round number stays only if it lies within the zone width of one of those (it then confirms it, it is never drawn alone)
+    if fewLines and array.size(zP) > 0
+        for i = array.size(zP) - 1 to 0
+            ki = array.get(zK, i)
+            keepI = ki == 1 or ki == 2 or ki == 6
+            if not keepI
+                for j2 = 0 to array.size(zP) - 1
+                    kj = array.get(zK, j2)
+                    if (kj == 1 or kj == 2 or kj == 6) and math.abs(array.get(zP, j2) - array.get(zP, i)) <= w(array.get(zP, i))
+                        keepI := true
+            if not keepI
+                array.remove(zP, i)
+                array.remove(zK, i)
+                array.remove(zT, i)
+                array.remove(zC, i)
+                array.remove(zSt, i)
+                array.remove(zW, i)
+    if array.size(zP) > 0
+        for i = 0 to array.size(zP) - 1
+            array.push(drawn, line.new(bar_index - 1, array.get(zP, i), bar_index, array.get(zP, i), extend = extend.both, color = array.get(zC, i), style = array.get(zSt, i), width = array.get(zW, i)))
 
     // ---- strong zones: group lines within the zone width, count different KINDS
     n = array.size(zP)
@@ -165,6 +219,42 @@ if barstate.islast
                     array.push(boxes, box.new(bar_index - 60, hi + w(hi) * 0.15, bar_index + 30, lo - w(lo) * 0.15, bgcolor = color.new(#f4b400, 78), border_color = color.new(#f4b400, 40), extend = extend.none))
                     array.push(lbls, label.new(bar_index - 58, (lo + hi) / 2, "STRONG " + str.tostring((lo + hi) / 2, format.mintick), style = label.style_none, textcolor = color.new(#8a6400, 0), size = size.small))
                 gStart := j + 1
+
+    // ---- ONE readable label per cluster of nearby lines (names joined, one price); every line is still drawn
+    if showLbl and n > 0
+        idl = array.sort_indices(zP, order.ascending)
+        gl = 0
+        for j = 0 to n - 1
+            curL = array.get(zP, array.get(idl, j))
+            egl = j == n - 1
+            if not egl
+                nxL = array.get(zP, array.get(idl, j + 1))
+                egl := nxL - curL > (usePct ? curL * lblV / 100.0 : lblV)
+            if egl
+                nmList = array.new_string()
+                loL = array.get(zP, array.get(idl, gl))
+                colL = array.get(zC, array.get(idl, gl))
+                bestL = 99
+                for q = gl to j
+                    ii = array.get(idl, q)
+                    tn = array.get(zT, ii)
+                    if not array.includes(nmList, tn)
+                        array.push(nmList, tn)
+                    kk = array.get(zK, ii)
+                    prL = kk == 1 ? 0 : kk == 2 ? 1 : kk == 6 ? 2 : kk == 3 ? 3 : kk == 4 ? 4 : 5
+                    if prL < bestL
+                        bestL := prL
+                        colL := array.get(zC, ii)
+                cntL = array.size(nmList)
+                shownL = math.min(cntL, 4)
+                txL = ""
+                for z = 0 to shownL - 1
+                    txL := txL + (z > 0 ? " + " : "") + array.get(nmList, z)
+                if cntL > shownL
+                    txL := txL + " +" + str.tostring(cntL - shownL)
+                midL = (loL + curL) / 2.0
+                array.push(lbls, label.new(bar_index + 2, midL, str.tostring(midL, format.mintick) + "  " + txL, style = label.style_none, textcolor = colL, size = size.small))
+                gl := j + 1
 
 // ---------------------------------------------------------------- alert: touched a strong zone from above and a candle CLOSED back above it
 // (uses the last drawn zones; the alert fires on the bar close)
