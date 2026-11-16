@@ -142,8 +142,13 @@ def marks_block(levels, prem):
     return "\n".join(out)
 
 
+def shown(z, n):
+    """Line names for a message: round numbers still count inside the zone, but are not printed (owner 2026-11-16)."""
+    return [x for x in z["names"] if not x.startswith("round number")][:n]
+
+
 def zone_line(z):
-    return "%.0f%s - %s" % (z["price"], " **STRONG**" if z["strength"] >= 3 else "", ", ".join(z["names"][:4]))
+    return "%.0f%s - %s" % (z["price"], " **STRONG**" if z["strength"] >= 3 else "", ", ".join(shown(z, 4)))
 
 
 def trigger_text(side, k, prem, zs, hi_so_far):
@@ -155,7 +160,7 @@ def trigger_text(side, k, prem, zs, hi_so_far):
         z = max(below, key=lambda z: z["price"])
     stop = z["price"] - 30.0
     return z, ("BUY PLAN %d %s: wait for the premium to FALL back to about %.0f (%s). Buy ONLY when a 1-minute candle CLOSES back above %.0f. "
-               "Stop about %.0f (30 under the zone). If it never comes back, no trade - do not chase." % (k, side, z["price"], ", ".join(z["names"][:3]), z["price"] + 3, stop))
+               "Stop about %.0f (30 under the zone). If it never comes back, no trade - do not chase." % (k, side, z["price"], ", ".join(shown(z, 3)), z["price"] + 3, stop))
 
 
 def plan_msg(today, gap, side, ker_rising, exp, dte, picks, zs, prem, hi, gap_big, lv):
@@ -173,7 +178,7 @@ def plan_msg(today, gap, side, ker_rising, exp, dte, picks, zs, prem, hi, gap_bi
             tx.append("\n" + lines_block("", picks[s][0], s, prem[s], zs[s]) + "\n" + marks_block(lv[s], prem[s]))
     z, t = trigger_text(side, picks[side][0], prem[side], zs[side], hi[side]) if side in picks else (None, None)
     tx.append("\n" + (t or "%s side: price is sitting at/under its lines already - I will tell you when a candle closes back above one." % side))
-    tx.append("Zone = 'strong' when 3 or more lines sit together (yesterday close/low/high, 5- and 15-minute swings, today's open, round numbers). Hand-drawn trend lines are NOT included - add yours.")
+    tx.append("Zone = 'strong' when 3 or more lines sit together (yesterday close/low/high, 5- and 15-minute swings, today's open, and a few other levels). Hand-drawn trend lines are NOT included - add yours.")
     tx.append(NOTE)
     return "\n".join(tx)
 
@@ -182,7 +187,7 @@ def entry_msg(side, k, e, stopmsg_target):
     t, z = stopmsg_target
     tx = ["ENTRY at %s - BUY %d %s near %.0f   [%s]" % (hhmm(e["t"] + 1), k, side, e["entry"], "pullback into a zone" if e["kind"] == "pullback" else ("TRAP IS DONE - price reclaimed the zone that failed; this wins back the stopped trade" if e["kind"].startswith("TRAP") else "BREAKOUT - his second plan, smaller size"))]
     tx.append("Why: premium closed back above %s." % zone_line(e["zone"]))
-    tx.append("STOP %.0f (%.0f points). At +25 I will tell you to move it to cost. FIRST TARGET %.0f%s." % (e["stop"], e["entry"] - e["stop"], t, (" (next zone: %s)" % ", ".join(z["names"][:2])) if z else ""))
+    tx.append("STOP %.0f (%.0f points). At +25 I will tell you to move it to cost. FIRST TARGET %.0f%s." % (e["stop"], e["entry"] - e["stop"], t, (" (next zone: %s)" % ", ".join(shown(z, 2))) if z else ""))
     tx.append("Window: 15-20 minutes, then out. Up to 3 entries a day: after a stop I watch for the trap to finish (close back above the failed zone) and tell you; after a cost exit one re-entry.")
     tx.append(NOTE)
     return "\n".join(tx)
