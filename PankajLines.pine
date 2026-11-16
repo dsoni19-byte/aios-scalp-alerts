@@ -30,7 +30,7 @@ showPrev = input.bool(true, "Yesterday O/H/L/C", group = grpS)
 showToday = input.bool(true, "Today open / high / low / 50% of first 5 min", group = grpS)
 showSwing = input.bool(true, "Reversal points", group = grpS)
 showLbl = input.bool(true, "Labels", group = grpS)
-fewLines = input.bool(true, "Few lines: only yesterday O/H/L/C + today open/high/low/50% of first 5 min; swings and round numbers only where they confirm one of those", group = grpS)
+fewLines = input.bool(true, "Few lines: yesterday O/H/L/C + today open/high/low/50% of first 5 min + every STRONG zone; other swings and round numbers only where they confirm a day-level", group = grpS)
 lblV = input.float(12.0, "Merge labels of lines closer than (points, or % if ticked)", minval = 0.0, group = grpS)
 
 colPrev = color.new(#1f5fbf, 0)
@@ -176,10 +176,31 @@ if barstate.islast
 
     // ---- FEW LINES (his charts carry about 8, not 40+): keep the day-levels (yesterday O/H/L/C, today open/high/low, 50% of first 5 min);
     // a swing or round number stays only if it lies within the zone width of one of those (it then confirms it, it is never drawn alone)
+    // strong zones (3+ kinds of line together) are NEVER removed: every line that belongs to one stays drawn
+    inStrong = array.new_bool(array.size(zP), false)
+    if array.size(zP) > 0
+        idS = array.sort_indices(zP, order.ascending)
+        gS0 = 0
+        nS = array.size(zP)
+        for j3 = 0 to nS - 1
+            curS = array.get(zP, array.get(idS, j3))
+            egS = j3 == nS - 1
+            if not egS
+                egS := array.get(zP, array.get(idS, j3 + 1)) - curS > w(curS)
+            if egS
+                ksS = array.new_int()
+                for q3 = gS0 to j3
+                    kdS = array.get(zK, array.get(idS, q3))
+                    if not array.includes(ksS, kdS)
+                        array.push(ksS, kdS)
+                if array.size(ksS) >= minStr
+                    for q3 = gS0 to j3
+                        array.set(inStrong, array.get(idS, q3), true)
+                gS0 := j3 + 1
     if fewLines and array.size(zP) > 0
         for i = array.size(zP) - 1 to 0
             ki = array.get(zK, i)
-            keepI = ki == 1 or ki == 2 or ki == 6
+            keepI = ki == 1 or ki == 2 or ki == 6 or array.get(inStrong, i)
             if not keepI
                 for j2 = 0 to array.size(zP) - 1
                     kj = array.get(zK, j2)
@@ -192,6 +213,7 @@ if barstate.islast
                 array.remove(zC, i)
                 array.remove(zSt, i)
                 array.remove(zW, i)
+                array.remove(inStrong, i)
     if array.size(zP) > 0
         for i = 0 to array.size(zP) - 1
             array.push(drawn, line.new(bar_index - 1, array.get(zP, i), bar_index, array.get(zP, i), extend = extend.both, color = array.get(zC, i), style = array.get(zSt, i), width = array.get(zW, i)))
