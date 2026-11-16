@@ -31,6 +31,15 @@ except Exception:
     pass
 
 
+
+def _day_zones(lv):
+    """Few-lines rule (owner 2026-11-16; pre-registered test: research/PANKAJ_RULE_PREREGISTRATION_2026-11-16.md, R3, 62 sessions +468 vs +447 with ~48 lines).
+    Keep only yesterday open/high/low/close, today open/high/low and the 50% of the first 5 minutes; a 5/15-min swing or round number is kept only
+    when it lies within CLUSTER points of one of those (it confirms it, never stands alone). A zone = 2+ kinds among the kept lines."""
+    base = [x for x in lv if x[1] in ("prev", "open", "dayhl", "mid")]
+    keep = list(base) + [x for x in lv if x[1] in ("s5", "s15", "t5", "round") and any(abs(x[0] - y[0]) <= K.CLUSTER for y in base)]
+    return K.zones(keep)
+
 def candles(tok, cid, sec_id, option, interval, d_from, d_to):
     """-> {date: dict(mod, open, high, low, close)}; START-minute stamps.  Options drop the 09:15 auction candle (first = 09:16)."""
     first = 9 * 60 + (16 if option else 15)
@@ -269,7 +278,7 @@ def main():
             prev, today_c = feed.opt(sid, refresh=live)
             c = K.closed(today_c, nm_)
             if c and c["mod"]:
-                lv[s] = K.build_levels(prev, c); zs[s] = K.zones(lv[s]); prem[s] = c["close"][-1]; hi[s] = max(c["high"])
+                lv[s] = K.build_levels(prev, c); zs[s] = _day_zones(lv[s]); prem[s] = c["close"][-1]; hi[s] = max(c["high"])
             else:
                 zs[s], prem[s], hi[s], lv[s] = [], 0.0, 0.0, []
     refresh(nm)
