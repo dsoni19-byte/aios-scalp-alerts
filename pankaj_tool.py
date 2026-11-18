@@ -15,6 +15,7 @@ import time
 
 import pankaj_core as K
 import pankaj_morning_alert as pm      # helpers only: dhan_token, post, chain, send, IST
+import pankaj_shadow as SH             # observation only: logs the open-interest angle, never alters or sends anything
 
 IST = pm.IST
 DRY = pm.DRY
@@ -353,6 +354,7 @@ def main():
                     trade = dict(entry=E_, stop=stop_, t=e["t"], t_end=min(nm + 22, E_END + 5), target=tgt[0], side=side, strike=k, kind=e["kind"], zone=trade["zone"], zone_p=trade["zone_p"])
                     entries += 1
                     pm.send(entry_msg(side, k, e, tgt))
+                    SH.log_entry(tok, cid, e.get("kind"), side, k, e["entry"], nm)
             continue
         if side in picks and (trade is None or trade.get("reenter")):
             k, sid = picks[side]
@@ -369,6 +371,7 @@ def main():
                     trade = dict(entry=e["entry"], stop=e["stop"], t=e["t"], t_end=min(nm + 22, E_END + 5), target=tgt[0], side=side, strike=k, kind=e["kind"], zone=e["zone"], zone_p=e["zone"]["price"])
                     entries += 1
                     pm.send(entry_msg(side, k, e, tgt))
+                    SH.log_entry(tok, cid, e.get("kind"), side, k, e["entry"], nm)
                     continue
         # ---- trigger update (he lowers the trigger as price drifts)
         if side in picks and not trade and prem.get(side):
