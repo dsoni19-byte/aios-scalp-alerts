@@ -39,9 +39,45 @@ def log_entry(tok, cid, kind, side, strike, entry_prem, minute):
                    o4_aligned=bool(aligned))
         pm.log("SHADOW|" + json.dumps(rec))
         return rec
-    except Exception as e:                                   # noqa: BLE001 - observation must never break the alert
+    except (Exception, SystemExit) as e:                      # noqa: BLE001 - post() raises SystemExit on a rejected token - observation must never break the alert
         try:
             pm.log("SHADOW|error|%s" % str(e)[:120])
+        except Exception:                                    # noqa: BLE001
+            pass
+        return None
+
+
+_last_snap = {"m": None}
+
+
+def snapshot_strikes(tok, cid, minute, width=1000):
+    """Every 5th minute during the live watch: log per-strike OI (+ change since previous close, last price, volume) within +-width of spot.
+    Log-only ('STRIKES|{json}'); one extra option-chain request; every error swallowed. Purpose: forward test of the intraday strike-level
+    'who is behind the OI change' idea that the historical warehouse cannot test (it only has settled end-of-day strike data)."""
+    if pm.AS_OF or minute % 5 != 0 or _last_snap["m"] == minute:
+        return None
+    _last_snap["m"] = minute
+    try:
+        exps = pm.post("/optionchain/expirylist", {"UnderlyingScrip": pm.BN_ID, "UnderlyingSeg": "IDX_I"}, tok, cid, "chain").get("data") or []
+        today = dt.datetime.now(pm.IST).strftime("%Y-%m-%d")
+        exps = [e for e in exps if e >= today]
+        oc = pm.post("/optionchain", {"UnderlyingScrip": pm.BN_ID, "UnderlyingSeg": "IDX_I", "Expiry": exps[0]}, tok, cid, "chain").get("data") or {}
+        spot = float(oc.get("last_price") or 0)
+        rows = []
+        for k, v in (oc.get("oc") or {}).items():
+            ks = int(float(k))
+            if abs(ks - spot) > width:
+                continue
+            for s in ("ce", "pe"):
+                x = v.get(s) or {}
+                if x.get("oi") is None:
+                    continue
+                rows.append([ks, s, x.get("oi"), x.get("previous_oi"), x.get("last_price"), x.get("previous_close_price"), x.get("volume")])
+        pm.log("STRIKES|" + json.dumps(dict(date=today, minute=minute, spot=spot, expiry=exps[0], cols="strike,type,oi,prev_oi,ltp,prev_close,volume", rows=rows), separators=(",", ":")))
+        return len(rows)
+    except (Exception, SystemExit) as e:                      # noqa: BLE001 - post() raises SystemExit on a rejected token
+        try:
+            pm.log("STRIKES|error|%s" % str(e)[:120])
         except Exception:                                    # noqa: BLE001
             pass
         return None
