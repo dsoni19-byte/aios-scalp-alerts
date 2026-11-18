@@ -310,6 +310,8 @@ def main():
                     send_chart(feed, picks, lv, zs, prem, nm, [side], "flip")
         except RuntimeError as e:
             log(str(e)); continue
+        if live:
+            SH.snapshot_strikes(tok, cid, nm)      # log-only per-strike OI every 5th minute (never alters anything)
         # ---- manage an open trade
         if trade and not trade.get("done"):
             c = K.closed(feed.opt(picks[trade["side"]][1])[1], nm)
