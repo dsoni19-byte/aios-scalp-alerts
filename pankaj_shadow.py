@@ -81,3 +81,39 @@ def snapshot_strikes(tok, cid, minute, width=1000):
         except Exception:                                    # noqa: BLE001
             pass
         return None
+
+
+# ------------------------------------------------------------------------------------------------------------------ PAPER TRADING
+# One lot, SIMULATED only. No broker order is ever created here. Assumptions (all labelled in the message): fill 2 points worse than the
+# signal price on entry and on exit, brokerage Rs 40 per round trip, ~0.15% of exit turnover for taxes and exchange charges.
+import os
+PAPER_LOT = int(os.environ.get("PAPER_LOT", "30"))          # BANKNIFTY lot size: VERIFY against the current NSE circular before trusting rupee figures
+PAPER_SLIP = 2.0
+_paper = {"open": None, "day_pts": 0.0, "day_rs": 0.0, "n": 0}
+
+
+def paper_enter(side, strike, entry, minute, kind):
+    try:
+        _paper["open"] = dict(side=side, strike=strike, entry=float(entry), minute=minute, kind=str(kind)[:40])
+        pm.log("PAPER|enter|" + json.dumps(_paper["open"]))
+    except (Exception, SystemExit):                          # noqa: BLE001
+        pass
+
+
+def paper_exit(price, minute, reason):
+    """Close the open paper trade at `price` (the tool's own exit level). Sends ONE labelled Telegram line."""
+    try:
+        t = _paper["open"]
+        if not t or price is None:
+            return
+        _paper["open"] = None
+        gross = float(price) - t["entry"]
+        pts = gross - 2 * PAPER_SLIP
+        rs = pts * PAPER_LOT - 40.0 - 0.0015 * float(price) * PAPER_LOT
+        _paper["day_pts"] += pts; _paper["day_rs"] += rs; _paper["n"] += 1
+        rec = dict(t, exit=round(float(price), 2), exit_minute=minute, reason=reason, gross_pts=round(gross, 1), net_pts=round(pts, 1), net_rs=round(rs), lot=PAPER_LOT)
+        pm.log("PAPER|exit|" + json.dumps(rec))
+        pm.send("PAPER TRADE (practice only, no real order) - %d %s: in %.0f, out %.0f (%s). %+.0f points = about Rs %+.0f for 1 lot (%d units) after assumed costs and slippage. Today so far: %d paper trade(s), Rs %+.0f."
+                % (t["strike"], t["side"], t["entry"], float(price), reason, pts, rs, PAPER_LOT, _paper["n"], _paper["day_rs"]))
+    except (Exception, SystemExit):                          # noqa: BLE001
+        pass
