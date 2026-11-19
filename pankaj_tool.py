@@ -319,6 +319,7 @@ def main():
             for m_ in msgs:
                 pm.send("[%s %d %s] %s" % (hhmm(nm), trade["strike"], trade["side"], m_))
             if trade.get("done"):
+                SH.paper_exit(trade.get("exit_price", (c["close"][-1] if c and c.get("close") else None)), nm, trade["done"])
                 if trade["done"] == "cost" and entries < 2:
                     trade["reenter"] = True
                 elif trade["done"] == "stop" and entries < int(os.environ.get("MAX_ENTRIES", "3")) and nm + 8 <= E_END:
@@ -357,6 +358,7 @@ def main():
                     entries += 1
                     pm.send(entry_msg(side, k, e, tgt))
                     SH.log_entry(tok, cid, e.get("kind"), side, k, e["entry"], nm)
+                    SH.paper_enter(side, k, e["entry"], nm, e.get("kind"))
             continue
         if side in picks and (trade is None or trade.get("reenter")):
             k, sid = picks[side]
@@ -374,6 +376,7 @@ def main():
                     entries += 1
                     pm.send(entry_msg(side, k, e, tgt))
                     SH.log_entry(tok, cid, e.get("kind"), side, k, e["entry"], nm)
+                    SH.paper_enter(side, k, e["entry"], nm, e.get("kind"))
                     continue
         # ---- trigger update (he lowers the trigger as price drifts)
         if side in picks and not trade and prem.get(side):
@@ -385,6 +388,11 @@ def main():
         pm.send("Pankaj Sahu style - %s is over. No clean entry came, so no trade today. A no-trade day is also a good day. (%s)" % (today, "big gap day" if gap_big else "pullback never closed back above a zone"))
     elif not trade.get("done"):
         pm.send("Watch ended before the trade finished - please manage the exit yourself now.")
+        try:
+            c_ = K.closed(feed.opt(picks[trade["side"]][1])[1], clock())
+            SH.paper_exit(c_["close"][-1] if c_ and c_.get("close") else None, clock(), "watch ended")
+        except (Exception, SystemExit):
+            pass
 
 
 if __name__ == "__main__":
