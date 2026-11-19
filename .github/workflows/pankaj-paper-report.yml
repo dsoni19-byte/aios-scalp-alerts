@@ -1,0 +1,37 @@
+name: pankaj-paper-report
+
+# Weekly (Friday 18:00 IST) read-only tally of the simulated PAPER trades logged by pankaj-morning. Sends one Telegram line. No orders, no cost.
+on:
+  schedule:
+    - cron: "30 12 * * 5"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "1 = print instead of sending Telegram"
+        default: "0"
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: pankaj-paper-report
+  cancel-in-progress: false
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install requests
+      - name: tally paper trades
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          PANKAJ_CHAT_ID: ${{ vars.PANKAJ_CHAT_ID }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: python paper_report.py
