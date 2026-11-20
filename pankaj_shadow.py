@@ -94,7 +94,9 @@ _paper = {"open": None, "day_pts": 0.0, "day_rs": 0.0, "n": 0}
 
 def paper_enter(side, strike, entry, minute, kind):
     try:
-        _paper["open"] = dict(side=side, strike=strike, entry=float(entry), minute=minute, kind=str(kind)[:40])
+        # v2 = "early, no re-entry" rule (owner yes 2026-11-20; found on past data, net of costs: no trap re-entries, entry before 09:30). Same trade, just labelled.
+        v2 = (not str(kind).upper().startswith("TRAP")) and minute < 9 * 60 + 30
+        _paper["open"] = dict(side=side, strike=strike, entry=float(entry), minute=minute, kind=str(kind)[:40], v2=bool(v2))
         pm.log("PAPER|enter|" + json.dumps(_paper["open"]))
     except (Exception, SystemExit):                          # noqa: BLE001
         pass
@@ -113,8 +115,8 @@ def paper_exit(price, minute, reason):
         _paper["day_pts"] += pts; _paper["day_rs"] += rs; _paper["n"] += 1
         rec = dict(t, exit=round(float(price), 2), exit_minute=minute, reason=reason, gross_pts=round(gross, 1), net_pts=round(pts, 1), net_rs=round(rs), lot=PAPER_LOT)
         pm.log("PAPER|exit|" + json.dumps(rec))
-        pm.send("PAPER TRADE (practice only, no real order) - %d %s: in %.0f, out %.0f (%s). %+.0f points = about Rs %+.0f for 1 lot (%d units) after assumed costs and slippage. Today so far: %d paper trade(s), Rs %+.0f."
-                % (t["strike"], t["side"], t["entry"], float(price), reason, pts, rs, PAPER_LOT, _paper["n"], _paper["day_rs"]))
+        pm.send("PAPER TRADE (practice only, no real order) - %d %s: in %.0f, out %.0f (%s). %+.0f points = about Rs %+.0f for 1 lot (%d units) after assumed costs and slippage. Today so far: %d paper trade(s), Rs %+.0f. Early-no-re-entry rule: %s."
+                % (t["strike"], t["side"], t["entry"], float(price), reason, pts, rs, PAPER_LOT, _paper["n"], _paper["day_rs"], "YES" if t.get("v2") else "no"))
     except (Exception, SystemExit):                          # noqa: BLE001
         pass
 
