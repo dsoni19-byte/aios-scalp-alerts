@@ -62,6 +62,11 @@ def main():
             msg += " VERDICT: too early - no conclusion yet."
         else:
             msg += " VERDICT: %s." % ("PASS - bar met, still a small sample" if tot > 0 and ex3 > 0 else "FAIL - do not trade real money with this")
+    v2 = [j["net_pts"] for _c, j, _r in tr if j.get("v2")]
+    if v2:
+        t2 = sum(v2); e2 = sum(sorted(v2, reverse=True)[3:])
+        msg += " EARLY-NO-RE-ENTRY version (entry before 9:30, no re-entry after a stop): %d of 30 trades, total %+.0f points, average %+.1f, without best 3: %+.0f%s." % (
+            len(v2), t2, t2 / len(v2), e2, "" if len(v2) < 30 else (" - PASS" if t2 > 0 and e2 > 0 else " - FAIL"))
     if errs:
         msg += " Note: %d logging error line(s) found." % errs
     print(msg)
