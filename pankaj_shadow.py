@@ -117,3 +117,29 @@ def paper_exit(price, minute, reason):
                 % (t["strike"], t["side"], t["entry"], float(price), reason, pts, rs, PAPER_LOT, _paper["n"], _paper["day_rs"]))
     except (Exception, SystemExit):                          # noqa: BLE001
         pass
+
+
+# ------------------------------------------------------------------------------------------------------------------ RT-B SHADOW (log only)
+# RT-B = "second touch only": a pullback entry counts only if the same zone was already touched from above at least 3 candles before the touch
+# candle; breakout entries do not count. Pre-registered test: passed 2026 blocks A/B/C, FAILED block D, so NOT supported. This only LABELS each
+# live entry ('RTB|{json}') so forward days can be scored with and without it. It never sends, never changes an entry/stop/target.
+# Limit: it labels entries the live tool actually took; it does not simulate extra entries RT-B alone might have taken.
+def rtb_label(c, e, side, strike, minute):
+    try:
+        if pm.AS_OF:
+            return None
+        import pankaj_core as K
+        ok = False
+        if e and e.get("kind") == "pullback" and e.get("touch_t") is not None:
+            tj = c["mod"].index(e["touch_t"])
+            z = e["zone"]
+            ok = any(K.touch(c, k, [z], max(c["high"][:k + 1])) for k in range(1, max(1, tj - 2)))
+        rec = dict(date=dt.datetime.now(pm.IST).strftime("%Y-%m-%d"), minute=minute, side=side, strike=strike, kind=str((e or {}).get("kind"))[:40], rtb_ok=bool(ok))
+        pm.log("RTB|" + json.dumps(rec))
+        return rec
+    except (Exception, SystemExit) as ex:                     # noqa: BLE001
+        try:
+            pm.log("RTB|error|%s" % str(ex)[:120])
+        except Exception:                                    # noqa: BLE001
+            pass
+        return None
