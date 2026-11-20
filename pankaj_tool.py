@@ -376,6 +376,7 @@ def main():
                     entries += 1
                     pm.send(entry_msg(side, k, e, tgt))
                     SH.log_entry(tok, cid, e.get("kind"), side, k, e["entry"], nm)
+                    SH.rtb_label(c, e, side, k, nm)
                     SH.paper_enter(side, k, e["entry"], nm, e.get("kind"))
                     continue
         # ---- trigger update (he lowers the trigger as price drifts)
