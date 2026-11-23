@@ -1,0 +1,143 @@
+"""OVERNIGHT CONTINUATION watch -> Telegram channel "scalping".  Alert only, never places an order.  Runs once at about 15:20 IST.
+
+STATUS: a CANDIDATE found by a wide past-data search (main project reports/OVERNIGHT_CONTINUATION_2026-11-23.md) that passed rules
+fixed before the search (2021-2023 discovery, then 2024-25, 2025-26 and NIFTY/SENSEX unchanged).  Not yet proven live.
+
+Rule (decided at 15:20 with the 15:20 one-minute close vs that day's first price):
+  STRONG close: index is up at least CUT_UP % from today's open  -> idea: buy the at-the-money CALL near 15:20-15:25, sell at the next open.
+  WEAK close  : index is down at least CUT_DN % from today's open -> idea: buy the at-the-money PUT the same way.
+  otherwise   : no idea.
+Past results when decided at 15:20 (index points after costs, enter 15:20, exit next open):
+  BANKNIFTY 2021-09..2026-11  strong +64/trade (n390, 64% won), weak +31 (n422);  NIFTY 2025-26 +28 / +15;  SENSEX 2025-26 +106 / +41.
+  Option version (BANKNIFTY ATM, close -> next open, 2025-26): call +22/trade, put +30/trade; worst single loss 656 / 345 pts.
+Sends ONE message each trading day (ideas or 'no idea today'); silent on holidays.
+
+Standalone (requests + cryptography).  Env: DHAN_TOKEN or (TOKEN_ENC_KEY + state/token.enc), TELEGRAM_BOT_TOKEN, SCALPING_CHAT_ID;
+DRY_RUN=1 prints instead of sending; AS_OF=YYYY-MM-DD evaluates that past day at 15:20 (testing only)."""
+import base64
+import datetime as dt
+import json
+import os
+import sys
+import time
+from zoneinfo import ZoneInfo
+
+import requests
+
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
+
+IST = ZoneInfo("Asia/Kolkata")
+DH = "https://api.dhan.co/v2"
+DRY = os.environ.get("DRY_RUN", "").lower() in ("1", "true")
+AS_OF = os.environ.get("AS_OF", "").strip()
+DECIDE = "15:20"
+# name, Dhan id, cut down %, cut up %, strike step, past result text (index points after costs, decided 15:20)
+INDEXES = [("Bank Nifty", "25", -0.27, 0.34, 100, "2021-2026: up-days +64 pts per trade (64 of 100 won), down-days +31"),
+           ("Nifty", "13", -0.16, 0.28, 50, "2025-2026: up-days +28 pts per trade, down-days +15"),
+           ("Sensex", "51", -0.22, 0.27, 100, "2025-2026: up-days +106 pts per trade, down-days +41")]
+
+
+def log(m):
+    print("[%s] %s" % (dt.datetime.now(IST).strftime("%H:%M:%S"), m), flush=True)
+
+
+def dhan_token():
+    tok = os.environ.get("DHAN_TOKEN", "").strip()
+    if not tok:
+        from cryptography.fernet import Fernet
+        tok = Fernet(os.environ["TOKEN_ENC_KEY"].strip().encode()).decrypt(open(os.path.join(os.environ.get("STATE_DIR", "state"), "token.enc"), "rb").read()).decode().strip()
+    try:
+        p = tok.split(".")[1]; cid = str(json.loads(base64.urlsafe_b64decode(p + "=" * (-len(p) % 4))).get("dhanClientId") or "")
+    except Exception:
+        cid = ""
+    return tok, cid or os.environ.get("DHAN_CLIENT_ID", "").strip()
+
+
+def minutes(tok, cid, sec_id, day):
+    """[(HH:MM, open, close)] for one day, oldest first (Dhan one-minute candles)."""
+    for a in range(4):
+        try:
+            r = requests.post(DH + "/charts/intraday", timeout=30, headers={"access-token": tok, "client-id": cid, "Content-Type": "application/json", "Accept": "application/json"},
+                              json={"securityId": sec_id, "exchangeSegment": "IDX_I", "instrument": "INDEX", "interval": "1", "fromDate": day + " 09:15:00", "toDate": day + " 15:30:00"})
+            if r.status_code in (401, 403):
+                raise SystemExit("Dhan rejected the token (%d)" % r.status_code)
+            if r.status_code == 429 or r.status_code >= 500:
+                time.sleep(3 * (a + 1)); continue
+            j = r.json()
+            if not isinstance(j, dict) or "close" not in j:
+                return []
+            break
+        except (requests.Timeout, requests.ConnectionError):
+            time.sleep(3 * (a + 1))
+    else:
+        raise RuntimeError("Dhan not reachable after 4 tries")
+    out = []
+    for t, o, c in zip(j["timestamp"], j["open"], j["close"]):
+        ts = dt.datetime.fromtimestamp(t, IST)
+        if ts.date().isoformat() == day and float(c) > 0:
+            out.append((ts.strftime("%H:%M"), float(o), float(c)))
+    return sorted(out)
+
+
+def send(text):
+    if DRY:
+        print("[dry-run] would send:\n" + text + "\n"); return True
+    j = requests.post("https://api.telegram.org/bot%s/sendMessage" % os.environ["TELEGRAM_BOT_TOKEN"].strip(), timeout=20,
+                      json={"chat_id": os.environ["SCALPING_CHAT_ID"].strip(), "text": text[:4000], "disable_web_page_preview": True}).json()
+    if not j.get("ok"):
+        log("telegram failed: %s" % str(j.get("description"))[:120])
+    return bool(j.get("ok"))
+
+
+def evaluate(name, bars, lo, hi, step):
+    """Returns (line, has_idea) from one day's one-minute bars, using the last bar at or before 15:20."""
+    upto = [b for b in bars if b[0] <= DECIDE]
+    if len(upto) < 300:
+        return None
+    o, c = bars[0][1], upto[-1][2]
+    ch = 100 * (c / o - 1)
+    strike = round(c / step) * step
+    if ch >= hi:
+        return ("%s: STRONG day, up %.2f%% from today's open (%.0f -> %.0f at %s).\n   Idea: buy the %d CALL (at the money) now, sell it at tomorrow's open (09:15-09:20)." % (name, ch, o, c, upto[-1][0], strike), True)
+    if ch < lo:
+        return ("%s: WEAK day, down %.2f%% from today's open (%.0f -> %.0f at %s).\n   Idea: buy the %d PUT (at the money) now, sell it at tomorrow's open (09:15-09:20)." % (name, -ch, o, c, upto[-1][0], strike), True)
+    return ("%s: no idea today (%+.2f%% from today's open; needs %+.2f%% or %+.2f%%)." % (name, ch, hi, lo), False)
+
+
+def main():
+    now = dt.datetime.now(IST)
+    if AS_OF:
+        day = AS_OF
+    else:
+        if now.weekday() >= 5 or not (15 * 60 + 15 <= now.hour * 60 + now.minute <= 15 * 60 + 29):
+            log("outside the 15:15-15:29 window or weekend: nothing to do"); return 0
+        day = now.date().isoformat()
+    tok, cid = dhan_token()
+    lines, ideas, seen = [], 0, 0
+    for name, sec, lo, hi, step, past in INDEXES:
+        bars = minutes(tok, cid, sec, day)
+        if not bars:
+            lines.append("%s: no price data today." % name); continue
+        seen += 1
+        r = evaluate(name, bars, lo, hi, step)
+        if r is None:
+            lines.append("%s: not enough of today's prices yet." % name); continue
+        lines.append(r[0] + ("\n   Past: " + past + "." if r[1] else ""))
+        ideas += r[1]
+    if not seen:
+        log("no price data for %s (market holiday?): silent" % day); return 0
+    when = dt.date.fromisoformat(day).strftime("%d %b")
+    head = ("OVERNIGHT IDEA - %s, decided at 15:20 (an idea for you to judge, not an order)\n\n" % when) if ideas else ("OVERNIGHT CHECK - %s: no overnight idea today.\n\n" % when)
+    tail = ("\n\nWhy: when an index finishes clearly up (or down) from its own opening price, the next morning has tended to open further the same way "
+            "(found on past data 2021-2026; NOT yet proven live). Option version on past data: Bank Nifty call +22 and put +30 points per trade; "
+            "worst single overnight loss about 650 points on the option. One bad overnight gap can hurt: trade very small, or only note it on paper.") if ideas else ""
+    msg = head + "\n".join(lines) + tail
+    log("%d idea(s) for %s" % (ideas, day))
+    return 0 if send(msg) else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

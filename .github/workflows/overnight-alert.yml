@@ -1,0 +1,48 @@
+name: overnight-alert
+
+# OVERNIGHT CONTINUATION watch -> private Telegram channel. Alert only, never orders. Candidate rule, NOT proven live.
+# Public repository = free Actions minutes. Started by an external cron dispatch at about 15:20 IST on weekdays; one message per trading day.
+# No secret is stored in this repository: keys live in Actions secrets; the encrypted Dhan token is fetched fresh each run.
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "1 = print instead of sending Telegram"
+        default: "0"
+      as_of:
+        description: "YYYY-MM-DD = evaluate that past day at 15:20 (preview/testing only)"
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: overnight-alert
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install requests cryptography
+      - name: fetch the encrypted Dhan token (kept current by the private token-keeper repo)
+        env:
+          GH_TOKEN: ${{ secrets.KEEPER_READ_PAT }}
+        run: |
+          mkdir -p state
+          gh api -H "Accept: application/vnd.github.raw" repos/dsoni19-byte/dhan-token-keeper/contents/state/token.enc > state/token.enc
+          test -s state/token.enc
+      - name: overnight check
+        env:
+          DHAN_CLIENT_ID: ${{ secrets.DHAN_CLIENT_ID }}
+          TOKEN_ENC_KEY: ${{ secrets.TOKEN_ENC_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          SCALPING_CHAT_ID: ${{ vars.SCALPING_CHAT_ID }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          AS_OF: ${{ inputs.as_of }}
+        run: python overnight_alert.py
