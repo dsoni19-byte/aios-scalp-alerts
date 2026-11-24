@@ -35,6 +35,8 @@ DRY = os.environ.get("DRY_RUN", "").lower() in ("1", "true")
 AS_OF = os.environ.get("AS_OF", "").strip()
 T0, T1 = "10:30", "11:00"
 TGT, STOP = 0.002, 0.004
+# Exchange-published weekday trading holidays (main project config/exchange_published_holidays.yaml). Add the next year's list in December.
+HOLIDAYS = {"2026-11-10", "2026-11-24", "2026-12-25"}
 # name, id, WIDE %, RISE %, FIN %, strike step, past text
 INDEXES = [("Bank Nifty", "25", 1.41, 0.073, 0.33, 100, "146 past trades, 75% won, +19 pts each (stronger version: 73 trades, 84% won, +43)"),
            ("Nifty", "13", 0.976, 0.049, 0.273, 50, "37 past trades, 76% won, +21 pts each"),
@@ -84,7 +86,7 @@ def prior_days(tok, cid, sec, day):
     out, d = [], dt.date.fromisoformat(day)
     for _ in range(10):
         d -= dt.timedelta(days=1)
-        if d.weekday() >= 5: continue
+        if d.weekday() >= 5 or d.isoformat() in HOLIDAYS: continue
         b = minutes(tok, cid, sec, d.isoformat())
         if len(b) >= 300:
             out.insert(0, (b[0][1], max(x[2] for x in b), min(x[3] for x in b), b[-1][4]))
@@ -133,6 +135,8 @@ def main():
         if now < wake:
             log("waiting until 11:00:40 for the decision candle"); time.sleep((wake - now).total_seconds())
         day = now.date().isoformat()
+    if day in HOLIDAYS:
+        log("%s is a published market holiday: silent" % day); return 0
     tok, cid = dhan_token()
     lines, seen = [], 0
     for name, sec, wide, rise, fin, step, past in INDEXES:

@@ -35,6 +35,15 @@ DH = "https://api.dhan.co/v2"
 DRY = os.environ.get("DRY_RUN", "").lower() in ("1", "true")
 AS_OF = os.environ.get("AS_OF", "").strip()
 DECIDE = "15:20"
+# Exchange-published weekday trading holidays (main project config/exchange_published_holidays.yaml). Add the next year's list in December.
+HOLIDAYS = {"2026-11-10", "2026-11-24", "2026-12-25"}
+
+
+def next_trading_day(day):
+    d = dt.date.fromisoformat(day) + dt.timedelta(days=1)
+    while d.weekday() >= 5 or d.isoformat() in HOLIDAYS:
+        d += dt.timedelta(days=1)
+    return d
 # name, Dhan id, cut down %, cut up %, strike step, past result text (index points after costs, decided 15:20)
 INDEXES = [("Bank Nifty", "25", -0.27, 0.34, 100, "15 years: 66 of 100 such nights went up, about +0.20% per night"),
            ("Nifty", "13", -0.16, 0.28, 50, "15 years: 69 of 100 such nights went up, about +0.17% per night"),
@@ -93,7 +102,7 @@ def send(text):
     return bool(j.get("ok"))
 
 
-def evaluate(name, bars, lo, hi, step):
+def evaluate(name, bars, lo, hi, step, nxt="tomorrow's"):
     """Returns (line, has_idea) from one day's one-minute bars, using the last bar at or before 15:20."""
     upto = [b for b in bars if b[0] <= DECIDE]
     if len(upto) < 300:
@@ -102,7 +111,7 @@ def evaluate(name, bars, lo, hi, step):
     ch = 100 * (c / o - 1)
     strike = round(c / step) * step
     if ch >= hi:
-        return ("%s: STRONG day, up %.2f%% from today's open (%.0f -> %.0f at %s).\n   Idea: buy the %d CALL (at the money) now, sell it at tomorrow's open (09:15-09:20)." % (name, ch, o, c, upto[-1][0], strike), True)
+        return ("%s: STRONG day, up %.2f%% from today's open (%.0f -> %.0f at %s).\n   Idea: buy the %d CALL (at the money) now, sell it at %s open (09:15-09:20)." % (name, ch, o, c, upto[-1][0], strike, nxt), True)
     if ch < lo:   # CALLS ONLY (owner 2026-11-24): the put side lost money over 15 years of daily data
         return ("%s: weak day (%+.2f%% from today's open): no idea - the put side is switched off (it lost over 15 years)." % (name, ch), False)
     return ("%s: no idea today (%+.2f%% from today's open; needs %+.2f%%)." % (name, ch, hi), False)
@@ -120,6 +129,10 @@ def main():
         if now < wake:
             log("waiting until 15:20:40 for the decision candle"); time.sleep((wake - now).total_seconds())
         day = now.date().isoformat()
+    if day in HOLIDAYS:
+        log("%s is a published market holiday: silent" % day); return 0
+    nd = next_trading_day(day)
+    nxt = "tomorrow's" if (nd - dt.date.fromisoformat(day)).days == 1 else "the next trading day's (%s)" % nd.strftime("%a %d %b")
     tok, cid = dhan_token()
     lines, ideas, seen = [], 0, 0
     for name, sec, lo, hi, step, past in INDEXES:
@@ -127,7 +140,7 @@ def main():
         if not bars:
             lines.append("%s: no price data today." % name); continue
         seen += 1
-        r = evaluate(name, bars, lo, hi, step)
+        r = evaluate(name, bars, lo, hi, step, nxt)
         if r is None:
             lines.append("%s: not enough of today's prices yet." % name); continue
         lines.append(r[0] + ("\n   Past: " + past + "." if r[1] else ""))
