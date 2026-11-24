@@ -112,8 +112,12 @@ def main():
     if AS_OF:
         day = AS_OF
     else:
-        if now.weekday() >= 5 or not (15 * 60 + 15 <= now.hour * 60 + now.minute <= 15 * 60 + 29):
-            log("outside the 15:15-15:29 window or weekend: nothing to do"); return 0
+        if now.weekday() >= 5 or not (14 * 60 + 50 <= now.hour * 60 + now.minute <= 15 * 60 + 27):
+            log("outside the 14:50-15:27 window or weekend: nothing to do"); return 0
+        # GitHub's own timer starts late by a few minutes, so the run is scheduled about 15:05 and waits here for the 15:20 candle
+        wake = now.replace(hour=15, minute=20, second=40, microsecond=0)
+        if now < wake:
+            log("waiting until 15:20:40 for the decision candle"); time.sleep((wake - now).total_seconds())
         day = now.date().isoformat()
     tok, cid = dhan_token()
     lines, ideas, seen = [], 0, 0

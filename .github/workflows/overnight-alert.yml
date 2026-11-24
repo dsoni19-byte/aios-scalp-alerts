@@ -1,9 +1,12 @@
 name: overnight-alert
 
 # OVERNIGHT CONTINUATION watch -> private Telegram channel. Alert only, never orders. Candidate rule, NOT proven live.
-# Public repository = free Actions minutes. Started by an external cron dispatch at about 15:20 IST on weekdays; one message per trading day.
+# Public repository = free Actions minutes. GitHub's own timer starts it at about 15:05 IST on weekdays (often a few minutes late);
+# the script waits for the 15:20 candle and sends one message per trading day (silent on holidays).
 # No secret is stored in this repository: keys live in Actions secrets; the encrypted Dhan token is fetched fresh each run.
 on:
+  schedule:
+    - cron: "35 9 * * 1-5"   # 09:35 UTC = 15:05 IST
   workflow_dispatch:
     inputs:
       dry_run:
@@ -23,7 +26,7 @@ concurrency:
 jobs:
   check:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
