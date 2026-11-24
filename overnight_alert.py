@@ -5,7 +5,8 @@ fixed before the search (2021-2023 discovery, then 2024-25, 2025-26 and NIFTY/SE
 
 Rule (decided at 15:20 with the 15:20 one-minute close vs that day's first price):
   STRONG close: index is up at least CUT_UP % from today's open  -> idea: buy the at-the-money CALL near 15:20-15:25, sell at the next open.
-  WEAK close  : index is down at least CUT_DN % from today's open -> idea: buy the at-the-money PUT the same way.
+  WEAK close  : SWITCHED OFF 2026-11-24 (owner: calls only) -- shorting after a weak close lost over 15 years of daily data
+                (BANKNIFTY 43% won -0.04%/night, NIFTY 38% -0.06%; research/scripts/overnight_2026-11-23/daily15y_out.txt).
   otherwise   : no idea.
 Past results when decided at 15:20 (index points after costs, enter 15:20, exit next open):
   BANKNIFTY 2021-09..2026-11  strong +64/trade (n390, 64% won), weak +31 (n422);  NIFTY 2025-26 +28 / +15;  SENSEX 2025-26 +106 / +41.
@@ -35,9 +36,9 @@ DRY = os.environ.get("DRY_RUN", "").lower() in ("1", "true")
 AS_OF = os.environ.get("AS_OF", "").strip()
 DECIDE = "15:20"
 # name, Dhan id, cut down %, cut up %, strike step, past result text (index points after costs, decided 15:20)
-INDEXES = [("Bank Nifty", "25", -0.27, 0.34, 100, "2021-2026: up-days +64 pts per trade (64 of 100 won), down-days +31"),
-           ("Nifty", "13", -0.16, 0.28, 50, "2025-2026: up-days +28 pts per trade, down-days +15"),
-           ("Sensex", "51", -0.22, 0.27, 100, "2025-2026: up-days +106 pts per trade, down-days +41")]
+INDEXES = [("Bank Nifty", "25", -0.27, 0.34, 100, "15 years: 66 of 100 such nights went up, about +0.20% per night"),
+           ("Nifty", "13", -0.16, 0.28, 50, "15 years: 69 of 100 such nights went up, about +0.17% per night"),
+           ("Sensex", "51", -0.22, 0.27, 100, "2025-2026: +106 pts per trade (Sensex has no 15-year file here)")]
 
 
 def log(m):
@@ -102,9 +103,9 @@ def evaluate(name, bars, lo, hi, step):
     strike = round(c / step) * step
     if ch >= hi:
         return ("%s: STRONG day, up %.2f%% from today's open (%.0f -> %.0f at %s).\n   Idea: buy the %d CALL (at the money) now, sell it at tomorrow's open (09:15-09:20)." % (name, ch, o, c, upto[-1][0], strike), True)
-    if ch < lo:
-        return ("%s: WEAK day, down %.2f%% from today's open (%.0f -> %.0f at %s).\n   Idea: buy the %d PUT (at the money) now, sell it at tomorrow's open (09:15-09:20)." % (name, -ch, o, c, upto[-1][0], strike), True)
-    return ("%s: no idea today (%+.2f%% from today's open; needs %+.2f%% or %+.2f%%)." % (name, ch, hi, lo), False)
+    if ch < lo:   # CALLS ONLY (owner 2026-11-24): the put side lost money over 15 years of daily data
+        return ("%s: weak day (%+.2f%% from today's open): no idea - the put side is switched off (it lost over 15 years)." % (name, ch), False)
+    return ("%s: no idea today (%+.2f%% from today's open; needs %+.2f%%)." % (name, ch, hi), False)
 
 
 def main():
@@ -135,9 +136,10 @@ def main():
         log("no price data for %s (market holiday?): silent" % day); return 0
     when = dt.date.fromisoformat(day).strftime("%d %b")
     head = ("OVERNIGHT IDEA - %s, decided at 15:20 (an idea for you to judge, not an order)\n\n" % when) if ideas else ("OVERNIGHT CHECK - %s: no overnight idea today.\n\n" % when)
-    tail = ("\n\nWhy: when an index finishes clearly up (or down) from its own opening price, the next morning has tended to open further the same way "
-            "(found on past data 2021-2026; NOT yet proven live). Option version on past data: Bank Nifty call +22 and put +30 points per trade; "
-            "worst single overnight loss about 650 points on the option. One bad overnight gap can hurt: trade very small, or only note it on paper.") if ideas else ""
+    tail = ("\n\nWhy: when an index finishes clearly up from its own opening price, the next morning has tended to open higher "
+            "(15 years of daily data: Bank Nifty 66% and Nifty 69% of such nights went up, a profit in every year 2012-2026, weakest in 2026). "
+            "Option version 2025-26: Bank Nifty call about +18 points per trade, worst single overnight loss about 650 points. "
+            "NOT yet proven live. One bad overnight gap can hurt: trade very small, or only note it on paper.") if ideas else ""
     msg = head + "\n".join(lines) + tail
     log("%d idea(s) for %s" % (ideas, day))
     return 0 if send(msg) else 1
