@@ -1,8 +1,8 @@
 name: pankaj-paper-report
 
-# Weekly (Friday 18:00 IST) read-only tally of the simulated PAPER trades logged by pankaj-morning. Sends one Telegram line. No orders, no cost.
+# Weekly (Friday 15:20 IST, owner 2026-11-26) read-only tally of the simulated PAPER trades logged by pankaj-morning. Sends one Telegram line. No orders, no cost.
 on:
-  # Trigger = cron-job.org job 'AIOS Pankaj paper report Fri 1800' (18:00 IST Fridays, POST workflow_dispatch).
+  # Trigger = cron-job.org job 'AIOS Pankaj paper report Fri 1520' (15:20 IST Fridays, POST workflow_dispatch).
   # GitHub's own timer was removed 2026-11-26: it fired about 8 hours late (02:08 IST Saturday).
   workflow_dispatch:
     inputs:
