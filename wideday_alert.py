@@ -11,7 +11,7 @@ Rule (exactly the tested one):
 Past results (index points after costs, 2021-2026 for Bank Nifty, 2025-2026 for Nifty/Sensex):
   Bank Nifty 1+2: 146 trades, 75% won, +19/trade; stronger: 73 trades, 84% won, +43.  Nifty 1+2: 37, 76%, +21.  Sensex 1+2: 33, 88%, +102.
   Shorting EVERY day at 11:00 with the same exits: 64% won but -3/trade (the conditions are what make it work).
-Sends a message ONLY on setup days; silent otherwise and on holidays.
+Sends ONE message every trading day at about 11:00 (owner 2026-11-26): the idea on setup days, 'no setup today' with the reason otherwise; silent on holidays.
 
 Env: DHAN_TOKEN or (TOKEN_ENC_KEY + state/token.enc), TELEGRAM_BOT_TOKEN, SCALPING_CHAT_ID; DRY_RUN=1 prints; AS_OF=YYYY-MM-DD tests a past day."""
 import base64
@@ -138,7 +138,7 @@ def main():
     if day in HOLIDAYS:
         log("%s is a published market holiday: silent" % day); return 0
     tok, cid = dhan_token()
-    lines, seen = [], 0
+    lines, seen, why_not = [], 0, []
     for name, sec, wide, rise, fin, step, past in INDEXES:
         bars = minutes(tok, cid, sec, day)
         if not bars:
@@ -147,11 +147,13 @@ def main():
         msg, why = evaluate(name, bars, prior_days(tok, cid, sec, day), wide, rise, fin, step, past)
         log("%s: %s -> %s" % (name, why, "SETUP" if msg else "no setup"))
         if msg: lines.append(msg)
+        else: why_not.append("%s: %s" % (name, why))
     if not seen:
         log("no price data for %s (holiday?): silent" % day); return 0
-    if not lines:
-        log("no setup today: silent"); return 0
     when = dt.date.fromisoformat(day).strftime("%d %b")
+    if not lines:
+        log("no setup today: sending the daily check")
+        return 0 if send("WIDE-DAY CHECK - %s, 11:00: no setup today.\n\n" % when + "\n".join(why_not)) else 1
     text = ("WIDE-DAY 11:00 IDEA - %s (an idea for you to judge, not an order)\n\n" % when + "\n".join(lines) +
             "\n\nWarning: found on past data, NOT yet proven live. Each loss is about twice a win, so it needs to keep winning about 70%+. "
             "A similar earlier rule won only 1 of 5 live trades. Trade very small, or only note it on paper." )
