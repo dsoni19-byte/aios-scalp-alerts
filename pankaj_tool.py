@@ -312,6 +312,7 @@ def main():
             log(str(e)); continue
         if live:
             SH.snapshot_strikes(tok, cid, nm)      # log-only per-strike OI every 5th minute (never alters anything)
+            SH.w_tick(tok, cid, nm)                # W-system PAPER: log + one practice message per paper exit; never alters the alert
         # ---- manage an open trade
         if trade and not trade.get("done"):
             c = K.closed(feed.opt(picks[trade["side"]][1])[1], nm)
@@ -385,6 +386,8 @@ def main():
             key = ("trig", None if not z else round(z["price"] / 10))
             if t and key != last_trigger and nm - last_trig_nm >= 4:
                 last_trigger = key; last_trig_nm = nm; pm.send("[%s] %s Premium now %.0f." % (hhmm(nm), t, prem[side]))
+    if live:
+        SH.w_finish(tok, cid, clock, T_HARD)    # keep the W paper system watching to the end of the window even if the alert loop stopped early
     if not trade:
         pm.send("Pankaj Sahu style - %s is over. No clean entry came, so no trade today. A no-trade day is also a good day. (%s)" % (today, "big gap day" if gap_big else "pullback never closed back above a zone"))
     elif not trade.get("done"):
