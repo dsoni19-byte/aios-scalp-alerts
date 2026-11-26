@@ -1,20 +1,16 @@
-"""OVERNIGHT CONTINUATION watch -> Telegram channel "scalping".  Alert only, never places an order.  Runs once at about 15:20 IST.
+"""OVERNIGHT watch, RULE v2 (owner 2026-11-26) -> Telegram channel "scalping".  Alert only, never places an order.  Runs once at about 15:25 IST.
 
-STATUS: a CANDIDATE found by a wide past-data search (main project reports/OVERNIGHT_CONTINUATION_2026-11-23.md) that passed rules
-fixed before the search (2021-2023 discovery, then 2024-25, 2025-26 and NIFTY/SENSEX unchanged).  Not yet proven live.
-
-Rule (decided at 15:20 with the 15:20 one-minute close vs that day's first price):
-  STRONG close: index is up at least CUT_UP % from today's open  -> idea: buy the at-the-money CALL near 15:20-15:25, sell at the next open.
-  WEAK close  : SWITCHED OFF 2026-11-24 (owner: calls only) -- shorting after a weak close lost over 15 years of daily data
-                (BANKNIFTY 43% won -0.04%/night, NIFTY 38% -0.06%; research/scripts/overnight_2026-11-23/daily15y_out.txt).
-  otherwise   : no idea.
-Past results when decided at 15:20 (index points after costs, enter 15:20, exit next open):
-  BANKNIFTY 2021-09..2026-11  strong +64/trade (n390, 64% won), weak +31 (n422);  NIFTY 2025-26 +28 / +15;  SENSEX 2025-26 +106 / +41.
-  Option version (BANKNIFTY ATM, close -> next open, 2025-26): call +22/trade, put +30/trade; worst single loss 656 / 345 pts.
+RULE v2 (main project src/overnight_signal.py --rule v2, reports/OVERNIGHT_SIGNAL_V2_2026-11-26.md), decided with the 15:25 one-minute close:
+  STRONG day  : index up at least +0.35% from today's open, AND
+  QUIET finish: the last 30 minutes rose less than +0.10%   -> idea: buy the at-the-money CALL now (15:25-15:28), sell it at the next open.
+  Strong day that kept pushing up in the last 30 minutes -> skip.   Weak day -> no idea (calls only, owner 2026-11-24).
+Past results (decided 15:25, index, after costs): Bank Nifty 2021-26 +0.15% per night (64% won), since Apr 2026 +0.17%; Nifty since Apr 2026 +0.19%,
+Sensex +0.26%.  Options since Apr 2026 (close -> next open): Bank Nifty +4.8%, Nifty +12.2%, Sensex +17.0% of the premium per trade.  NOT proven live.
+Previous rule (v1, 15:20, per-index cuts, no last-30-minute check) is in git history (commit 60d50e1).
 Sends ONE message each trading day (ideas or 'no idea today'); silent on holidays.
 
 Standalone (requests + cryptography).  Env: DHAN_TOKEN or (TOKEN_ENC_KEY + state/token.enc), TELEGRAM_BOT_TOKEN, SCALPING_CHAT_ID;
-DRY_RUN=1 prints instead of sending; AS_OF=YYYY-MM-DD evaluates that past day at 15:20 (testing only)."""
+DRY_RUN=1 prints instead of sending; AS_OF=YYYY-MM-DD evaluates that past day at 15:25 (testing only)."""
 import base64
 import datetime as dt
 import json
@@ -34,7 +30,9 @@ IST = ZoneInfo("Asia/Kolkata")
 DH = "https://api.dhan.co/v2"
 DRY = os.environ.get("DRY_RUN", "").lower() in ("1", "true")
 AS_OF = os.environ.get("AS_OF", "").strip()
-DECIDE = "15:20"
+DECIDE = "15:25"
+STRONG = 0.35   # % up from today's open
+QUIET = 0.10    # the last-30-minute rise must be below this
 # Exchange-published weekday trading holidays (main project config/exchange_published_holidays.yaml). Add the next year's list in December.
 HOLIDAYS = {"2026-11-10", "2026-11-24", "2026-12-25"}
 
@@ -44,10 +42,10 @@ def next_trading_day(day):
     while d.weekday() >= 5 or d.isoformat() in HOLIDAYS:
         d += dt.timedelta(days=1)
     return d
-# name, Dhan id, cut down %, cut up %, strike step, past result text (index points after costs, decided 15:20)
-INDEXES = [("Bank Nifty", "25", -0.27, 0.34, 100, "15 years: 66 of 100 such nights went up, about +0.20% per night"),
-           ("Nifty", "13", -0.16, 0.28, 50, "15 years: 69 of 100 such nights went up, about +0.17% per night"),
-           ("Sensex", "51", -0.22, 0.27, 100, "2025-2026: +106 pts per trade (Sensex has no 15-year file here)")]
+# name, Dhan id, strike step, past result text
+INDEXES = [("Bank Nifty", "25", 100, "since Apr 2026 the call made about +4.8% of the premium per trade; 2021-26 the index gained +0.15% per such night, 64% won"),
+           ("Nifty", "13", 50, "since Apr 2026 the call made about +12% of the premium per trade"),
+           ("Sensex", "51", 100, "since Apr 2026 the call made about +17% of the premium per trade")]
 
 
 def log(m):
@@ -102,19 +100,23 @@ def send(text):
     return bool(j.get("ok"))
 
 
-def evaluate(name, bars, lo, hi, step, nxt="tomorrow's"):
-    """Returns (line, has_idea) from one day's one-minute bars, using the last bar at or before 15:20."""
+def evaluate(name, bars, step, nxt="tomorrow's"):
+    """Returns (line, has_idea) from one day's one-minute bars, using the last bar at or before 15:25."""
     upto = [b for b in bars if b[0] <= DECIDE]
     if len(upto) < 300:
         return None
     o, c = bars[0][1], upto[-1][2]
     ch = 100 * (c / o - 1)
+    l30 = 100 * (c / upto[-31][1] - 1)          # last 30 minutes: open of the bar 30 minutes before the decision bar -> decision close
     strike = round(c / step) * step
-    if ch >= hi:
-        return ("%s: STRONG day, up %.2f%% from today's open (%.0f -> %.0f at %s).\n   Idea: buy the %d CALL (at the money) now, sell it at %s open (09:15-09:20)." % (name, ch, o, c, upto[-1][0], strike, nxt), True)
-    if ch < lo:   # CALLS ONLY (owner 2026-11-24): the put side lost money over 15 years of daily data
-        return ("%s: weak day (%+.2f%% from today's open): no idea - the put side is switched off (it lost over 15 years)." % (name, ch), False)
-    return ("%s: no idea today (%+.2f%% from today's open; needs %+.2f%%)." % (name, ch, hi), False)
+    if ch >= STRONG and l30 < QUIET:
+        return ("%s: STRONG day, up %.2f%% from today's open (%.0f -> %.0f at %s), quiet last 30 minutes (%+.2f%%).\n"
+                "   Idea: buy the %d CALL (at the money) now, sell it at %s open (09:15-09:20)." % (name, ch, o, c, upto[-1][0], l30, strike, nxt), True)
+    if ch >= STRONG:
+        return ("%s: strong day (%+.2f%%) but the last 30 minutes kept rising (%+.2f%%, needs below +%.2f%%): skip - such nights lost recently." % (name, ch, l30, QUIET), False)
+    if ch <= -STRONG:
+        return ("%s: weak day (%+.2f%% from today's open): no idea - calls only." % (name, ch), False)
+    return ("%s: no idea today (%+.2f%% from today's open; needs %+.2f%% and a quiet last 30 minutes)." % (name, ch, STRONG), False)
 
 
 def main():
@@ -124,10 +126,10 @@ def main():
     else:
         if now.weekday() >= 5 or not (14 * 60 + 50 <= now.hour * 60 + now.minute <= 15 * 60 + 27):
             log("outside the 14:50-15:27 window or weekend: nothing to do"); return 0
-        # GitHub's own timer starts late by a few minutes, so the run is scheduled about 15:05 and waits here for the 15:20 candle
-        wake = now.replace(hour=15, minute=20, second=40, microsecond=0)
+        # GitHub's own timer starts late by a few minutes, so the run is scheduled about 15:05 and waits here for the 15:25 candle
+        wake = now.replace(hour=15, minute=25, second=40, microsecond=0)
         if now < wake:
-            log("waiting until 15:20:40 for the decision candle"); time.sleep((wake - now).total_seconds())
+            log("waiting until 15:25:40 for the decision candle"); time.sleep((wake - now).total_seconds())
         day = now.date().isoformat()
     if day in HOLIDAYS:
         log("%s is a published market holiday: silent" % day); return 0
@@ -135,12 +137,12 @@ def main():
     nxt = "tomorrow's" if (nd - dt.date.fromisoformat(day)).days == 1 else "the next trading day's (%s)" % nd.strftime("%a %d %b")
     tok, cid = dhan_token()
     lines, ideas, seen = [], 0, 0
-    for name, sec, lo, hi, step, past in INDEXES:
+    for name, sec, step, past in INDEXES:
         bars = minutes(tok, cid, sec, day)
         if not bars:
             lines.append("%s: no price data today." % name); continue
         seen += 1
-        r = evaluate(name, bars, lo, hi, step, nxt)
+        r = evaluate(name, bars, step, nxt)
         if r is None:
             lines.append("%s: not enough of today's prices yet." % name); continue
         lines.append(r[0] + ("\n   Past: " + past + "." if r[1] else ""))
@@ -148,11 +150,10 @@ def main():
     if not seen:
         log("no price data for %s (market holiday?): silent" % day); return 0
     when = dt.date.fromisoformat(day).strftime("%d %b")
-    head = ("OVERNIGHT IDEA - %s, decided at 15:20 (an idea for you to judge, not an order)\n\n" % when) if ideas else ("OVERNIGHT CHECK - %s: no overnight idea today.\n\n" % when)
-    tail = ("\n\nWhy: when an index finishes clearly up from its own opening price, the next morning has tended to open higher "
-            "(15 years of daily data: Bank Nifty 66% and Nifty 69% of such nights went up, a profit in every year 2012-2026, weakest in 2026). "
-            "Option version 2025-26: Bank Nifty call about +18 points per trade, worst single overnight loss about 650 points. "
-            "NOT yet proven live. One bad overnight gap can hurt: trade very small, or only note it on paper.") if ideas else ""
+    head = ("OVERNIGHT IDEA (rule v2) - %s, decided at 15:25 (an idea for you to judge, not an order)\n\n" % when) if ideas else ("OVERNIGHT CHECK (rule v2) - %s: no overnight idea today.\n\n" % when)
+    tail = ("\n\nWhy: a day that closes clearly up from its own open WITHOUT a last-minute push has tended to open higher next morning "
+            "(Bank Nifty 2021-26 positive in every year). Strong days that pushed up in the last 30 minutes lost recently, so they are skipped. "
+            "Maximum loss = the premium paid: keep it to about 1% of capital per trade. NOT yet proven live.") if ideas else ""
     msg = head + "\n".join(lines) + tail
     log("%d idea(s) for %s" % (ideas, day))
     return 0 if send(msg) else 1
