@@ -1,16 +1,16 @@
 """OVERNIGHT watch, RULE v2 (owner 2026-11-26) -> Telegram channel "scalping".  Alert only, never places an order.  Runs once at about 15:20 IST (owner moved it from 15:25 on 2026-11-26).
 
-RULE v2 (main project src/overnight_signal.py --rule v2, reports/OVERNIGHT_SIGNAL_V2_2026-11-26.md), decided with the 15:25 one-minute close:
+RULE v2 (main project src/overnight_signal.py --rule v2, reports/OVERNIGHT_SIGNAL_V2_2026-11-26.md), decided with the 15:20 one-minute close:
   STRONG day  : index up at least +0.35% from today's open, AND
   QUIET finish: the last 30 minutes rose less than +0.10%   -> idea: buy the at-the-money CALL now (15:20-15:28), sell it at the next open.
   Strong day that kept pushing up in the last 30 minutes -> skip.   Weak day -> no idea (calls only, owner 2026-11-24).
-Past results (decided 15:25, index, after costs): Bank Nifty 2021-26 +0.15% per night (64% won), since Apr 2026 +0.17%; Nifty since Apr 2026 +0.19%,
-Sensex +0.26%.  Options since Apr 2026 (close -> next open): Bank Nifty +4.8%, Nifty +12.2%, Sensex +17.0% of the premium per trade.  NOT proven live.
+Past results (decided 15:20, index, after costs): Bank Nifty 2021-26 +0.15% per night (62% won), since Apr 2026 +0.19%; Nifty since Apr 2026 +0.21%,
+Sensex +0.25%.  Options since Apr 2026 (close -> next open): Bank Nifty +4.8%, Nifty +12.2%, Sensex +17.0% of the premium per trade.  NOT proven live.
 Previous rule (v1, 15:20, per-index cuts, no last-30-minute check) is in git history (commit 60d50e1).
 Sends ONE message each trading day (ideas or 'no idea today'); silent on holidays.
 
 Standalone (requests + cryptography).  Env: DHAN_TOKEN or (TOKEN_ENC_KEY + state/token.enc), TELEGRAM_BOT_TOKEN, SCALPING_CHAT_ID;
-DRY_RUN=1 prints instead of sending; AS_OF=YYYY-MM-DD evaluates that past day at 15:25 (testing only)."""
+DRY_RUN=1 prints instead of sending; AS_OF=YYYY-MM-DD evaluates that past day at 15:20 (testing only)."""
 import base64
 import datetime as dt
 import json
