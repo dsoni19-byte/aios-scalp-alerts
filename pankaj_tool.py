@@ -387,7 +387,7 @@ def main():
             if t and key != last_trigger and nm - last_trig_nm >= 4:
                 last_trigger = key; last_trig_nm = nm; pm.send("[%s] %s Premium now %.0f." % (hhmm(nm), t, prem[side]))
     if live:
-        SH.w_finish(tok, cid, clock, T_HARD)    # keep the W paper system watching to the end of the window even if the alert loop stopped early
+        SH.w_finish(tok, cid, clock, 11 * 60)   # keep the W paper system watching until 11:00 (owner's window) even if the alert loop stopped early
     if not trade:
         pm.send("Pankaj Sahu style - %s is over. No clean entry came, so no trade today. A no-trade day is also a good day. (%s)" % (today, "big gap day" if gap_big else "pullback never closed back above a zone"))
     elif not trade.get("done"):
