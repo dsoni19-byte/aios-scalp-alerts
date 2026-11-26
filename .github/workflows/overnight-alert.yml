@@ -5,8 +5,8 @@ name: overnight-alert
 # the script waits for the 15:25 candle (rule v2, 2026-11-26) and sends one message per trading day (silent on holidays).
 # No secret is stored in this repository: keys live in Actions secrets; the encrypted Dhan token is fetched fresh each run.
 on:
-  schedule:
-    - cron: "35 9 * * 1-5"   # 09:35 UTC = 15:05 IST
+  # Trigger = cron-job.org job 'AIOS overnight v2 1510' (id 8949951, 15:10 IST Mon-Fri, POST workflow_dispatch).
+  # GitHub's own timer was removed 2026-11-26: it fired about 10 hours late (01:00 IST) and could double-send if ever on time.
   workflow_dispatch:
     inputs:
       dry_run:
