@@ -2,7 +2,7 @@ name: overnight-alert
 
 # OVERNIGHT CONTINUATION watch -> private Telegram channel. Alert only, never orders. Candidate rule, NOT proven live.
 # Public repository = free Actions minutes. GitHub's own timer starts it at about 15:05 IST on weekdays (often a few minutes late);
-# the script waits for the 15:25 candle (rule v2, 2026-11-26) and sends one message per trading day (silent on holidays).
+# the script waits for the 15:20 candle (rule v2, 2026-11-26) and sends one message per trading day (silent on holidays).
 # No secret is stored in this repository: keys live in Actions secrets; the encrypted Dhan token is fetched fresh each run.
 on:
   # Trigger = cron-job.org job 'AIOS overnight v2 1510' (id 8949951, 15:10 IST Mon-Fri, POST workflow_dispatch).
@@ -13,7 +13,7 @@ on:
         description: "1 = print instead of sending Telegram"
         default: "0"
       as_of:
-        description: "YYYY-MM-DD = evaluate that past day at 15:25 (preview/testing only)"
+        description: "YYYY-MM-DD = evaluate that past day at 15:20 (preview/testing only)"
         default: ""
 
 permissions:

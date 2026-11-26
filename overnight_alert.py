@@ -1,8 +1,8 @@
-"""OVERNIGHT watch, RULE v2 (owner 2026-11-26) -> Telegram channel "scalping".  Alert only, never places an order.  Runs once at about 15:25 IST.
+"""OVERNIGHT watch, RULE v2 (owner 2026-11-26) -> Telegram channel "scalping".  Alert only, never places an order.  Runs once at about 15:20 IST (owner moved it from 15:25 on 2026-11-26).
 
 RULE v2 (main project src/overnight_signal.py --rule v2, reports/OVERNIGHT_SIGNAL_V2_2026-11-26.md), decided with the 15:25 one-minute close:
   STRONG day  : index up at least +0.35% from today's open, AND
-  QUIET finish: the last 30 minutes rose less than +0.10%   -> idea: buy the at-the-money CALL now (15:25-15:28), sell it at the next open.
+  QUIET finish: the last 30 minutes rose less than +0.10%   -> idea: buy the at-the-money CALL now (15:20-15:28), sell it at the next open.
   Strong day that kept pushing up in the last 30 minutes -> skip.   Weak day -> no idea (calls only, owner 2026-11-24).
 Past results (decided 15:25, index, after costs): Bank Nifty 2021-26 +0.15% per night (64% won), since Apr 2026 +0.17%; Nifty since Apr 2026 +0.19%,
 Sensex +0.26%.  Options since Apr 2026 (close -> next open): Bank Nifty +4.8%, Nifty +12.2%, Sensex +17.0% of the premium per trade.  NOT proven live.
@@ -30,7 +30,7 @@ IST = ZoneInfo("Asia/Kolkata")
 DH = "https://api.dhan.co/v2"
 DRY = os.environ.get("DRY_RUN", "").lower() in ("1", "true")
 AS_OF = os.environ.get("AS_OF", "").strip()
-DECIDE = "15:25"
+DECIDE = "15:20"   # owner 2026-11-26 (was 15:25)
 STRONG = 0.35   # % up from today's open
 QUIET = 0.10    # the last-30-minute rise must be below this
 # Exchange-published weekday trading holidays (main project config/exchange_published_holidays.yaml). Add the next year's list in December.
@@ -101,7 +101,7 @@ def send(text):
 
 
 def evaluate(name, bars, step, nxt="tomorrow's"):
-    """Returns (line, has_idea) from one day's one-minute bars, using the last bar at or before 15:25."""
+    """Returns (line, has_idea) from one day's one-minute bars, using the last bar at or before 15:20."""
     upto = [b for b in bars if b[0] <= DECIDE]
     if len(upto) < 300:
         return None
@@ -126,10 +126,10 @@ def main():
     else:
         if now.weekday() >= 5 or not (14 * 60 + 50 <= now.hour * 60 + now.minute <= 15 * 60 + 27):
             log("outside the 14:50-15:27 window or weekend: nothing to do"); return 0
-        # GitHub's own timer starts late by a few minutes, so the run is scheduled about 15:05 and waits here for the 15:25 candle
-        wake = now.replace(hour=15, minute=25, second=40, microsecond=0)
+        # GitHub's own timer starts late by a few minutes, so the run is scheduled about 15:05 and waits here for the 15:20 candle
+        wake = now.replace(hour=15, minute=20, second=40, microsecond=0)
         if now < wake:
-            log("waiting until 15:25:40 for the decision candle"); time.sleep((wake - now).total_seconds())
+            log("waiting until 15:20:40 for the decision candle"); time.sleep((wake - now).total_seconds())
         day = now.date().isoformat()
     if day in HOLIDAYS:
         log("%s is a published market holiday: silent" % day); return 0
@@ -150,7 +150,7 @@ def main():
     if not seen:
         log("no price data for %s (market holiday?): silent" % day); return 0
     when = dt.date.fromisoformat(day).strftime("%d %b")
-    head = ("OVERNIGHT IDEA (rule v2) - %s, decided at 15:25 (an idea for you to judge, not an order)\n\n" % when) if ideas else ("OVERNIGHT CHECK (rule v2) - %s: no overnight idea today.\n\n" % when)
+    head = ("OVERNIGHT IDEA (rule v2) - %s, decided at 15:20 (an idea for you to judge, not an order)\n\n" % when) if ideas else ("OVERNIGHT CHECK (rule v2) - %s: no overnight idea today.\n\n" % when)
     tail = ("\n\nWhy: a day that closes clearly up from its own open WITHOUT a last-minute push has tended to open higher next morning "
             "(Bank Nifty 2021-26 positive in every year). Strong days that pushed up in the last 30 minutes lost recently, so they are skipped. "
             "Maximum loss = the premium paid: keep it to about 1% of capital per trade. NOT yet proven live.") if ideas else ""
