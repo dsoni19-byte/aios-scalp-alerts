@@ -22,6 +22,7 @@ def main():
     runs = json.loads(sh("gh", "run", "list", "--repo", REPO, "--workflow", "pankaj-morning.yml", "--limit", "100", "--json", "databaseId,createdAt,conclusion,event"))
     runs = [r for r in runs if r["createdAt"][:10] >= SINCE and r["event"] == "workflow_dispatch"]
     paper, shadow, fails, errs = {}, [], 0, 0
+    wsys = {}
     for r in runs:
         log = sh("gh", "run", "view", str(r["databaseId"]), "--repo", REPO, "--log")
         if r.get("conclusion") not in ("success", None, ""):
@@ -39,7 +40,13 @@ def main():
                     shadow.append((r["databaseId"], json.loads(m.group(1))))
                 except ValueError:
                     pass
-            if re.search(r"(SHADOW|STRIKES)\|error", line):
+            m = re.search(r"WSYS\|exit\|(\{.*\})", line)
+            if m:
+                try:
+                    j = json.loads(m.group(1)); wsys[(r["databaseId"], j["m"], j["side"], j["k"])] = j
+                except ValueError:
+                    pass
+            if re.search(r"(SHADOW|STRIKES|WSYS)\|error", line):
                 errs += 1
     tr = sorted(paper.values(), key=lambda x: (x[0], x[1]["minute"]))
     pts = [j["net_pts"] for _, j, _r in tr]; n = len(pts)
@@ -67,6 +74,15 @@ def main():
         t2 = sum(v2); e2 = sum(sorted(v2, reverse=True)[3:])
         msg += " EARLY-NO-RE-ENTRY version (entry before 9:30, no re-entry after a stop): %d of 30 trades, total %+.0f points, average %+.1f, without best 3: %+.0f%s." % (
             len(v2), t2, t2 / len(v2), e2, "" if len(v2) < 30 else (" - PASS" if t2 > 0 and e2 > 0 else " - FAIL"))
+    W = list(wsys.values())
+    if W:
+        g = [x["gross_pts_ltp"] for x in W if x.get("gross_pts_ltp") is not None]
+        rl = [x["pts_at_real_bid_ask"] for x in W if x.get("pts_at_real_bid_ask") is not None]
+        sp = [x["spread_cost"] for x in W if x.get("spread_cost") is not None]
+        cost = (sum(sp) / len(sp) + 1.9) if sp else None
+        msg += " W-SYSTEM PAPER: %d of 20 trades; chart-price total %+.0f; at real bid/ask %+.0f; average spread cost %s, all-in cost per trade about %s points (needs <= 4.4)%s." % (
+            len(W), sum(g), sum(rl), ("%.1f" % (sum(sp) / len(sp))) if sp else "n/a", ("%.1f" % cost) if cost is not None else "n/a",
+            "" if len(W) < 20 or cost is None else (" - COST OK, worth considering" if cost <= 4.4 else " - COST TOO HIGH, drop the W system"))
     if errs:
         msg += " Note: %d logging error line(s) found." % errs
     print(msg)
